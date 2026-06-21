@@ -1,0 +1,47 @@
+{
+  "workflow": {
+    "research": true,
+    "reflection": true
+  },
+  "execution": {
+    "method": "auto",
+    "auto_commit": true,
+    "default_executor": ""
+  },
+  "git": {
+    "commit_docs": true
+  },
+  "gates": {
+    "confirm_roadmap": true,
+    "confirm_plan": true
+  },
+  "codebase": {
+    "auto_sync_after_execute": true
+  },
+  "guard": {
+    "enabled": false,
+    "mode": "allow",
+    "paths": []
+  },
+  "collab": {
+    "preflight_mode": "warn",
+    "preflight_window_min": 30,
+    "auto_preflight": true
+  },
+  "specInjection": {},
+  "dashboard": {
+    "port": 3001
+  },
+  "worktree": {
+    "root": ".worktrees",
+    "branch_prefix": "milestone/"
+  },
+  "init": {
+    "project_state": "code",
+    "granularity": "medium",
+    "workflow_agents": "enabled",
+    "gate_preferences": "standard",
+    "initialized_at": "2026-06-21T22:04:23.5735235+08:00",
+    "notes": "User confirmed this is a new Maestro project; existing source code was onboarded without overwriting .workflow/wiki-index.json."
+  }
+}

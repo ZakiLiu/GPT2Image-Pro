@@ -48,6 +48,15 @@ rollout-*.jsonl
 # Claude Code 子 Agent 隔离 worktree（临时，自动管理；偶有 node_modules 残留）
 .claude/worktrees/
 
+# Maestro local workflow runtime artifacts
+.workflow/wiki-index.json
+.workflow/spec-analytics.jsonl
+.workflow/specs/.hit-log.jsonl
+.workflow/scratch/
+.workflow/archive/
+.workflow/kg/
+.workflow/milestones/M-adhoc-*/
+
 # env files (can opt-in for committing if needed)
 .env*
 !.env*.example
