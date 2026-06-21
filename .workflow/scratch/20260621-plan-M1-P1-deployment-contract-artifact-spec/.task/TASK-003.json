@@ -1,0 +1,69 @@
+{
+  "id": "TASK-003",
+  "title": "新增 systemd 服务模板",
+  "type": "docs",
+  "milestone": "M1",
+  "phase": "M1-P1",
+  "wave": 1,
+  "depends_on": [],
+  "read_first": [
+    "Dockerfile.web",
+    "Dockerfile.chatgpt-web-proxy",
+    "docker-compose.yml",
+    "docs/deploy-nginx-ab.md"
+  ],
+  "files_to_modify": [
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "action": "创建 systemd 模板，分离 Web、ChatGPT Web proxy 与迁移 oneshot，限定服务白名单和运行目录。",
+  "implementation": {
+    "steps": [
+      "创建 `deploy/systemd/` 目录。",
+      "Web 模板使用 `WorkingDirectory=/opt/gpt2image/current/apps/web` 或等价 standalone 路径说明，`EnvironmentFile=/etc/gpt2image/gpt2image.env`，`ExecStart=/usr/bin/node server.js`。",
+      "Proxy 模板使用 `ExecStart=/opt/gpt2image/current/bin/chatgpt-web-proxy`，绑定 `127.0.0.1:3021` 或 `:3021` 由 env 控制。",
+      "Migrator 模板使用 `Type=oneshot`，只作为 pre-switch 迁移执行参考，不设为常驻服务。",
+      "模板不得包含真实域名、密钥、密码或用户特定路径。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "file_exists",
+        "check": "Test-Path deploy/systemd/gpt2image-web.service.example"
+      },
+      {
+        "type": "file_exists",
+        "check": "Test-Path deploy/systemd/gpt2image-chatgpt-web-proxy.service.example"
+      },
+      {
+        "type": "file_exists",
+        "check": "Test-Path deploy/systemd/gpt2image-migrate.service.example"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"WorkingDirectory=.*gpt2image/current|EnvironmentFile=/etc/gpt2image/gpt2image.env|ExecStart=.*node.*server.js\" deploy/systemd/gpt2image-web.service.example"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"ExecStart=.*chatgpt-web-proxy|CHATGPT_WEB_PROXY_BIND|3021\" deploy/systemd/gpt2image-chatgpt-web-proxy.service.example"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"Type=oneshot|db:migrate|pre-switch|migration\" deploy/systemd/gpt2image-migrate.service.example"
+      },
+      {
+        "type": "grep_absent",
+        "check": "rg -n \"systemctl .*restart (postgres|nginx|caddy|docker)\" deploy/systemd docs/deployment",
+        "expected": "no matches"
+      }
+    ]
+  },
+  "risks": [
+    "systemd WorkingDirectory 与 Next standalone 实际目录必须和 Phase 2 bundle 文件清单对齐；本阶段只给模板和约束。"
+  ],
+  "rollback": [
+    "删除 deploy/systemd/gpt2image-*.service.example。"
+  ]
+}

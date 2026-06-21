@@ -1,15 +1,81 @@
 {
   "version": "3.1",
   "project_name": "GPT2Image-Pro",
-  "status": "initialized",
-  "current_milestone": null,
+  "status": "planned",
+  "current_milestone": "M1",
   "current_task_id": null,
-  "milestones": [],
+  "milestones": [
+    {
+      "id": "M1",
+      "name": "Binary-Style Online Update",
+      "type": "standard",
+      "status": "planned",
+      "phases": [
+        {
+          "id": "M1-P1",
+          "name": "部署契约与产物规范",
+          "status": "planned"
+        },
+        {
+          "id": "M1-P2",
+          "name": "Release Bundle 与 CI 产物",
+          "status": "planned"
+        },
+        {
+          "id": "M1-P3",
+          "name": "本地 Updater CLI / Script Core",
+          "status": "planned"
+        },
+        {
+          "id": "M1-P4",
+          "name": "迁移、切换、重启与回滚闭环",
+          "status": "planned"
+        },
+        {
+          "id": "M1-P5",
+          "name": "Admin Operation、后台入口与文档收口",
+          "status": "planned"
+        }
+      ],
+      "phase_slugs": {
+        "M1-P1": "deployment-contract-artifact-spec",
+        "M1-P2": "release-bundle-ci-assets",
+        "M1-P3": "local-updater-core",
+        "M1-P4": "migration-switch-restart-rollback",
+        "M1-P5": "admin-operation-docs"
+      },
+      "roadmap_ref": ".workflow/roadmap.md",
+      "created_at": "2026-06-21T22:52:02.7964588+08:00"
+    }
+  ],
   "_milestone_schema": "{ id, name, type: 'standard'|'adhoc', status, phases[], phase_slugs{}, roadmap_ref, created_at }",
-  "artifacts": [],
-  "last_updated": "2026-06-21T22:04:23.5735235+08:00",
+  "artifacts": [
+    {
+      "path": ".workflow/roadmap.md",
+      "type": "roadmap",
+      "title": "Binary-Style Online Update Roadmap",
+      "created_at": "2026-06-21T22:52:02.7964588+08:00"
+    },
+    {
+      "path": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+      "type": "plan",
+      "title": "M1-P1 部署契约与产物规范执行计划",
+      "scope": "phase",
+      "milestone": "M1",
+      "phase": "M1-P1",
+      "depends_on": [
+        ".workflow/roadmap.md"
+      ],
+      "plan_file": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+      "task_count": 5,
+      "created_at": "2026-06-21T23:11:50+08:00"
+    }
+  ],
+  "last_updated": "2026-06-21T23:11:50+08:00",
   "accumulated_context": {
-    "key_decisions": [],
+    "key_decisions": [
+      "M1-P1 plan registered: binary-style 部署契约先落 docs/templates/schema/verification，不实现 updater 或后台入口。"
+    ],
     "blockers": [],
     "deferred": []
   },

@@ -1,0 +1,61 @@
+{
+  "id": "TASK-002",
+  "title": "定义 release manifest schema 与示例",
+  "type": "docs",
+  "milestone": "M1",
+  "phase": "M1-P1",
+  "wave": 1,
+  "depends_on": [],
+  "read_first": [
+    ".workflow/roadmap.md",
+    ".github/workflows/docker-release.yml",
+    "Dockerfile.web",
+    "Dockerfile.chatgpt-web-proxy",
+    "package.json"
+  ],
+  "files_to_modify": [
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json"
+  ],
+  "action": "创建 manifest JSON Schema 与 example manifest，锁定 M1-P1 要求的版本、commit、platform、artifact、checksum、最低版本、迁移模式、services 和 healthcheck 字段。",
+  "implementation": {
+    "steps": [
+      "创建 JSON Schema，required 字段包含 `version`、`commit`、`platform`、`artifact_url`、`artifact_sha256`、`minimum_supported_version`、`migration_mode`、`services`、`healthcheck`。",
+      "将 `platform` 示例限定为 `linux-x64`。",
+      "将 `migration_mode` 枚举为 `none`、`pre_switch`、`manual_required`。",
+      "services 示例包含 `web` 与 `chatgpt-web-proxy`，并预留 migrator 描述但不把 migrator 作为常驻服务。",
+      "example manifest 使用非敏感占位 URL 和 64 位十六进制 sha256。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "file_exists",
+        "check": "Test-Path docs/deployment/binary-style-manifest.schema.json"
+      },
+      {
+        "type": "file_exists",
+        "check": "Test-Path docs/deployment/binary-style-manifest.example.json"
+      },
+      {
+        "type": "command",
+        "check": "node -e \"const fs=require('fs'); JSON.parse(fs.readFileSync('docs/deployment/binary-style-manifest.schema.json','utf8')); JSON.parse(fs.readFileSync('docs/deployment/binary-style-manifest.example.json','utf8'));\""
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"artifact_sha256|minimum_supported_version|migration_mode|services|healthcheck|linux-x64\" docs/deployment/binary-style-manifest.schema.json docs/deployment/binary-style-manifest.example.json"
+      },
+      {
+        "type": "grep_absent",
+        "check": "rg -n \"secret|password|token|DATABASE_URL|BETTER_AUTH_SECRET\" docs/deployment/binary-style-manifest.example.json",
+        "expected": "no matches"
+      }
+    ]
+  },
+  "risks": [
+    "Schema 若过早绑定 CI 真实字段，后续 Phase 2 可能需要迁移。保持字段必要但不过度扩展。"
+  ],
+  "rollback": [
+    "删除 manifest schema 与 example JSON。"
+  ]
+}

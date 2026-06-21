@@ -1,0 +1,67 @@
+{
+  "id": "TASK-005",
+  "title": "新增 M1-P1 契约验证脚本与收口检查",
+  "type": "test",
+  "milestone": "M1",
+  "phase": "M1-P1",
+  "wave": 2,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004"
+  ],
+  "read_first": [
+    "package.json",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/verify-binary-deployment-contract.mjs",
+    "package.json"
+  ],
+  "action": "添加无外部依赖的 Node 验证脚本，并在 package.json 增加可手动运行的验证命令，检查 manifest 示例、必需字段、systemd 模板和 secrets 边界。",
+  "implementation": {
+    "steps": [
+      "创建 `scripts/verify-binary-deployment-contract.mjs`，只读取 M1-P1 新增文档、schema、example 和 systemd 模板。",
+      "脚本验证 JSON 可解析、required 字段齐全、example sha256 为 64 位十六进制、platform 为 `linux-x64`。",
+      "脚本验证 systemd 模板包含 gpt2image web/proxy/migrate 单元关键字段。",
+      "脚本验证新增示例文件不包含 `DATABASE_URL`、`BETTER_AUTH_SECRET`、`password`、`token` 等敏感字段。",
+      "在 package.json scripts 增加 `verify:binary-contract`，命令为 `node scripts/verify-binary-deployment-contract.mjs`。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "file_exists",
+        "check": "Test-Path scripts/verify-binary-deployment-contract.mjs"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"verify:binary-contract\" package.json"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"artifact_sha256|minimum_supported_version|linux-x64|gpt2image-web|gpt2image-chatgpt-web-proxy\" scripts/verify-binary-deployment-contract.mjs"
+      },
+      {
+        "type": "command",
+        "check": "node scripts/verify-binary-deployment-contract.mjs"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- package.json scripts/verify-binary-deployment-contract.mjs docs/deployment deploy/systemd README.md docs/CI-CD.md"
+      }
+    ]
+  },
+  "risks": [
+    "脚本只能验证契约文件，不能替代 Phase 2 的真实 bundle packaging tests；文档中必须说明边界。"
+  ],
+  "rollback": [
+    "删除 scripts/verify-binary-deployment-contract.mjs，并移除 package.json 的 verify:binary-contract script。"
+  ]
+}

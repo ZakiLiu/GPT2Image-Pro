@@ -1,0 +1,61 @@
+{
+  "id": "TASK-004",
+  "title": "补充 README 与 CI/CD 文档入口",
+  "type": "docs",
+  "milestone": "M1",
+  "phase": "M1-P1",
+  "wave": 2,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003"
+  ],
+  "read_first": [
+    "README.md",
+    "docs/CI-CD.md",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    ".github/workflows/docker-release.yml"
+  ],
+  "files_to_modify": [
+    "README.md",
+    "docs/CI-CD.md",
+    "docs/deployment/binary-style-deployment.md"
+  ],
+  "action": "在 README 与 CI/CD 文档中加入 binary-style 契约入口，明确当前 Docker Compose 仍是推荐部署，binary-style release assets 将在后续 Phase 2 接入。",
+  "implementation": {
+    "steps": [
+      "更新 README 的生产部署章节，在 Docker Compose 和源码部署之外增加 binary-style 预留小节或链接。",
+      "更新 docs/CI-CD.md 的 docker-release 说明，标注当前只发布 GHCR 与 compose 包，后续会按 M1-P2 增加 binary-style assets。",
+      "从 README 链接到 `docs/deployment/binary-style-deployment.md`。",
+      "避免承诺当前 release 已包含 binary-style bundle。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "grep",
+        "check": "rg -n \"binary-style|docs/deployment/binary-style-deployment.md|Docker Compose（推荐）\" README.md"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"binary-style|manifest|checksum|compose 包|GHCR\" docs/CI-CD.md"
+      },
+      {
+        "type": "grep_absent",
+        "check": "rg -n \"binary-style.*已发布|在线更新.*已可用\" README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md",
+        "expected": "no matches"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md"
+      }
+    ]
+  },
+  "risks": [
+    "README 容易让用户误解为当前生产可直接 binary-style 更新；必须使用“契约/后续 release assets”措辞。"
+  ],
+  "rollback": [
+    "还原 README 与 docs/CI-CD.md 中新增的 binary-style 链接和说明。"
+  ]
+}

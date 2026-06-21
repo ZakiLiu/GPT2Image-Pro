@@ -1,0 +1,15 @@
+{
+  "version": "3.1",
+  "artifacts": [
+    {
+      "path": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+      "type": "plan",
+      "title": "M1-P1 部署契约与产物规范执行计划",
+      "milestone": "M1",
+      "phase": "M1-P1",
+      "task_count": 5,
+      "created_at": "2026-06-21T23:11:50+08:00"
+    }
+  ],
+  "last_updated": "2026-06-21T23:11:50+08:00"
+}

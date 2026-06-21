@@ -1,0 +1,60 @@
+{
+  "id": "TASK-001",
+  "title": "新增 binary-style 部署契约文档",
+  "type": "docs",
+  "milestone": "M1",
+  "phase": "M1-P1",
+  "wave": 1,
+  "depends_on": [],
+  "read_first": [
+    ".workflow/roadmap.md",
+    "README.md",
+    "docs/deploy-nginx-ab.md",
+    "Dockerfile.web",
+    "Dockerfile.chatgpt-web-proxy",
+    "docker-compose.yml"
+  ],
+  "files_to_modify": [
+    "docs/deployment/binary-style-deployment.md"
+  ],
+  "action": "创建 binary-style 部署契约文档，说明首版目标平台、目录布局、共享数据目录、env 文件、日志目录、服务模型、安装、更新、回滚和 Docker Compose 差异。",
+  "implementation": {
+    "steps": [
+      "创建 `docs/deployment/` 目录。",
+      "写入 `docs/deployment/binary-style-deployment.md`。",
+      "文档必须明确 `releases/<version>/`、`current` symlink、`shared/storage`、`shared/.gpt2image`、`/etc/gpt2image/gpt2image.env`、`/var/log/gpt2image/`。",
+      "说明 Web、migrator、ChatGPT Web proxy 的进程边界，以及迁移先于 current 切换的顺序。",
+      "声明 bundle 不包含 secrets、`.env`、storage 和 `.gpt2image` 运行态数据。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "file_exists",
+        "check": "Test-Path docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"releases/<version>|current symlink|shared/storage|shared/.gpt2image|/etc/gpt2image/gpt2image.env|/var/log/gpt2image\" docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"Docker Compose|不替换|Linux x64|单实例|systemd\" docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"secrets|\\.env|storage|\\.gpt2image\" docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- docs/deployment/binary-style-deployment.md"
+      }
+    ]
+  },
+  "risks": [
+    "文档可能误导用户以为 binary-style 已可用。必须标明这是新增部署模式契约，后续 Phase 才实现产物和 updater。"
+  ],
+  "rollback": [
+    "删除 docs/deployment/binary-style-deployment.md。"
+  ]
+}

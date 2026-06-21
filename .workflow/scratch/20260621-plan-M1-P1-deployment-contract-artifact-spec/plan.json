@@ -1,0 +1,124 @@
+{
+  "id": "PLN-M1-P1-deployment-contract-artifact-spec",
+  "title": "M1-P1：部署契约与产物规范执行计划",
+  "scope": "phase",
+  "milestone": "M1",
+  "phase": "M1-P1",
+  "phase_name": "部署契约与产物规范",
+  "created_at": "2026-06-21T23:11:50+08:00",
+  "source": {
+    "roadmap": ".workflow/roadmap.md",
+    "session": ".workflow/.csv-wave/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+    "wave_1_findings": ".workflow/.csv-wave/20260621-plan-M1-P1-deployment-contract-artifact-spec/prev_context.md"
+  },
+  "summary": "为 binary-style 在线更新先建立可执行的部署契约、产物 manifest、systemd 模板、文档入口和验证脚本。此计划只覆盖 M1-P1，不实现 release bundle、updater CLI 或后台入口。",
+  "approach": [
+    "先把 Docker Compose 与 binary-style 的边界写清楚，保留现有 GHCR/compose 发布链路。",
+    "把 bundle 定义为 Next standalone runtime、静态资源、migrator 资产、ChatGPT Web proxy binary、manifest、checksum、脚本与 systemd 模板的组合，不承诺单文件 binary。",
+    "以 Linux x64 单实例 systemd 为首版目标，目录契约固定为 releases/<version>、current symlink、shared/storage、shared/.gpt2image、env 文件和日志目录。",
+    "用 JSON Schema、示例 manifest、systemd 模板和验证脚本让 M1-P1 的文档契约可被 grep/command 验证。",
+    "把迁移不可逆、secrets 禁入、同机服务隔离和 rollback 边界前置到契约和清单中。"
+  ],
+  "non_goals": [
+    "不实现 Sub2API 非数据库接口、Codex 登录接口、Agent 分支、Agent 批量图片工具或 PSD 生成接口。",
+    "不实现 release bundle CI、真实 updater、后台在线更新 UI 或 UOL operation。",
+    "不替换 Docker Compose 推荐部署方式。",
+    "不修改图像生成、计费、账号池、订阅、支付或存储业务逻辑。"
+  ],
+  "task_ids": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005"
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "契约骨架并行落地",
+      "tasks": [
+        "TASK-001",
+        "TASK-002",
+        "TASK-003"
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "文档入口与验证收口",
+      "tasks": [
+        "TASK-004",
+        "TASK-005"
+      ]
+    }
+  ],
+  "dependencies": {
+    "TASK-001": [],
+    "TASK-002": [],
+    "TASK-003": [],
+    "TASK-004": [
+      "TASK-001",
+      "TASK-002",
+      "TASK-003"
+    ],
+    "TASK-005": [
+      "TASK-001",
+      "TASK-002",
+      "TASK-003",
+      "TASK-004"
+    ]
+  },
+  "readiness_gate": {
+    "status": "passed",
+    "checks": [
+      "Wave 1 architecture、patterns、docs、tests、risks 探索均 completed。",
+      "现有 Docker release、Dockerfile、compose、README、CI/CD 与 AB runbook 已读取。",
+      "M1-P1 范围已限定为 docs/templates/schema/verification，不触碰业务运行路径。"
+    ]
+  },
+  "confidence": {
+    "overall": 0.84,
+    "factors": {
+      "context_coverage": 0.9,
+      "scope_clarity": 0.92,
+      "technical_risk": 0.74,
+      "testability": 0.84,
+      "rollback_safety": 0.8
+    },
+    "notes": "主要不确定性来自后续 Phase 2 的真实 bundle 文件清单和 Next standalone native asset 完整性；M1-P1 本身以文档、schema、模板和验证脚本为主，风险可控。"
+  },
+  "pressure_pass": {
+    "highest_complexity_task": "TASK-005",
+    "concerns": [
+      "验证脚本不能假装覆盖未来 release bundle，只能验证 M1-P1 已写入的契约、模板和示例。",
+      "secret 否定检查应只覆盖新增 binary-style 文档和示例，避免扫描全仓历史噪声。",
+      "systemd 模板必须使用 gpt2image 白名单服务名，不能暗示重启 postgres、nginx、caddy 或其他同机服务。"
+    ],
+    "mitigations": [
+      "TASK-005 的 convergence 明确限定检查目标文件。",
+      "验证脚本不读取 `.env`，不输出环境变量值。",
+      "模板和文档必须能被 rg 验证服务名、路径、checksum、manifest 字段和 secrets 边界。"
+    ]
+  },
+  "collision_detection": {
+    "status": "passed",
+    "same_milestone_plan_count": 0,
+    "notes": "state.json 当前只有 roadmap artifact，未发现同一 M1-P1 的已注册 plan。"
+  },
+  "verification": {
+    "plan_artifacts": [
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/TASK-001.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/TASK-002.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/TASK-003.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/TASK-004.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/TASK-005.json"
+    ],
+    "expected_execution_gates": [
+      "git diff --check -- README.md docs/CI-CD.md docs/deployment deploy/systemd scripts",
+      "node scripts/verify-binary-deployment-contract.mjs",
+      "rg -n \"binary-style|artifact_sha256|minimum_supported_version|shared/storage|shared/.gpt2image\" README.md docs/CI-CD.md docs/deployment",
+      "rg -n \"gpt2image-web|gpt2image-chatgpt-web-proxy|EnvironmentFile|ExecStart\" deploy/systemd"
+    ]
+  },
+  "next_command": "$maestro-execute .workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec"
+}
