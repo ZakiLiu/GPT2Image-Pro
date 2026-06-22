@@ -15,7 +15,11 @@
     "db:studio": "turbo db:studio --filter=@repo/database",
     "verify:binary-contract": "node scripts/verify-binary-deployment-contract.mjs",
     "build:binary-bundle": "node scripts/build-binary-release-bundle.mjs",
-    "verify:binary-bundle": "node scripts/verify-binary-release-bundle.mjs"
+    "verify:binary-bundle": "node scripts/verify-binary-release-bundle.mjs",
+    "updater:check": "node scripts/local-updater.mjs check",
+    "updater:plan": "node scripts/local-updater.mjs plan",
+    "updater:status": "node scripts/local-updater.mjs status",
+    "updater:dry-run": "node scripts/local-updater.mjs dry-run"
   },
   "devDependencies": {
     "turbo": "^2.9.16"

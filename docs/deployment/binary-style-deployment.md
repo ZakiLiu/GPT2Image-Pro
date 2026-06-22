@@ -248,6 +248,48 @@ unzip -l dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64.zip
 
 M1-P2 仍不包含 updater CLI，不实现本地下载、解包、切换、重启或回滚，也不实现后台 admin operation、后台 UI、Sub2API、Codex 登录、Agent 分支、批量图片工具或 PSD。
 
+## M1-P3 本地 updater CLI
+
+M1-P3 增加服务器本地手动执行的 updater CLI/script core。它只覆盖 `check`、`download`、`verify`、`stage`、`lock` 与 dry-run 预检，不代表已经可以切换生产版本。
+
+本地命令入口：
+
+```bash
+pnpm updater:check -- --manifest ./manifest.json --current-version v0.5.6 --platform linux-x64 --dry-run
+pnpm updater:plan -- --install-root /opt/gpt2image --manifest ./manifest.json --current-version v0.5.6 --dry-run
+pnpm updater:status -- --install-root /opt/gpt2image --dry-run
+pnpm updater:dry-run -- --install-root /opt/gpt2image --manifest ./manifest.json --current-version v0.5.6
+node scripts/local-updater.mjs download --install-root /opt/gpt2image --manifest ./manifest.json --artifact-file ./gpt2image-pro-v0.5.7-beta.1-linux-x64.tar.gz --checksum-file ./gpt2image-pro-v0.5.7-beta.1-linux-x64.tar.gz.sha256 --run-id v0.5.7-beta.1
+node scripts/local-updater.mjs stage --install-root /opt/gpt2image --manifest ./manifest.json --artifact-file /opt/gpt2image/shared/staging/v0.5.7-beta.1/downloads/gpt2image-pro-v0.5.7-beta.1-linux-x64.tar.gz --env-file /etc/gpt2image/gpt2image.env --run-id v0.5.7-beta.1
+```
+
+`check` 读取 detached manifest，校验 `platform=linux-x64`、`artifact_sha256`、`version`、`minimum_supported_version`、service 与 healthcheck 字段，并输出白名单 JSON 摘要：`current_version`、`available_version`、`decision`、`reason`、`artifact_url` 和 `artifact_sha256`。版本决策只允许正常升级判断；当前版本低于 `minimum_supported_version` 时返回 `minimum-unsupported`，不会继续 staging。
+
+`download` 只写入安装根下的 `shared/staging/<run-id>/downloads/`。artifact 先写入 `.partial` 文件，失败时清理 `.partial`，成功后再原子 rename 为最终 artifact 文件。随后同时校验 manifest `artifact_sha256` 与 detached checksum；校验失败时删除未可信 artifact。artifact 文件名必须包含 manifest version 与 `linux-x64`。
+
+`stage` 使用 `shared/updater.lock` 防止并发执行，只解包到 `shared/staging/<run-id>/stage/`，并在解包前拒绝 archive entry 中的 `../`、绝对路径或 Windows drive prefix。解包后检查必需 bundle 文件、禁入路径和 `SHA256SUMS`。env preflight 只检查 `/etc/gpt2image/gpt2image.env` 或 `--env-file` 的存在性，以及 `DATABASE_URL`、`BETTER_AUTH_SECRET` 等必需变量名集合；不读取、不打印变量值。
+
+M1-P3 明确不做以下动作：
+
+- 不切换 `current` symlink。
+- 不复制到正式 `releases/<version>/`。
+- 不运行 migrator 或 `db:migrate`。
+- 不调用 systemd 或 `systemctl`。
+- 不执行 healthcheck rollback。
+- 不提供 Admin Operation、UOL operation、server action、api route 或后台 UI。
+
+Phase 3 final gate：
+
+```bash
+node scripts/local-updater.mjs --self-test
+node scripts/verify-binary-release-bundle.mjs --self-test
+pnpm verify:binary-contract
+pnpm verify:binary-bundle -- --bundle-dir dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64 --manifest dist/binary-style/v0.0.0-alpha.0/manifest.json --artifact dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz
+git diff --check -- scripts/binary-style-release-lib.mjs scripts/verify-binary-release-bundle.mjs scripts/local-updater.mjs package.json docs/deployment/binary-style-deployment.md
+```
+
+如果本地没有 M1-P2 smoke bundle，可先按上一节 `pnpm build:binary-bundle` 命令生成后再执行 `pnpm verify:binary-bundle`。
+
 ## 后续实现约束
 
 后续 Phase 需要保持以下约束：

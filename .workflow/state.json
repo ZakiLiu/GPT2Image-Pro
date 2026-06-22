@@ -114,15 +114,49 @@
       "harvested": true,
       "created_at": "2026-06-22T12:23:22+08:00",
       "completed_at": "2026-06-22T12:23:22+08:00"
+    },
+    {
+      "path": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
+      "type": "plan",
+      "title": "M1-P3 本地 Updater CLI / Script Core 执行计划",
+      "scope": "phase",
+      "milestone": "M1",
+      "phase": "M1-P3",
+      "depends_on": [
+        ".workflow/roadmap.md",
+        ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+        ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
+        ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets"
+      ],
+      "plan_file": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+      "task_count": 6,
+      "created_at": "2026-06-22T14:15:38+08:00"
+    },
+    {
+      "id": "EXC-003",
+      "type": "execute",
+      "milestone": "M1",
+      "phase": "M1-P3",
+      "scope": "phase",
+      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+      "status": "completed",
+      "depends_on": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
+      "results_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/results.csv",
+      "context_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/context.md",
+      "harvested": true,
+      "created_at": "2026-06-22T15:29:53+08:00",
+      "completed_at": "2026-06-22T15:29:53+08:00"
     }
   ],
-  "last_updated": "2026-06-22T12:23:22+08:00",
+  "last_updated": "2026-06-22T15:29:53+08:00",
   "accumulated_context": {
     "key_decisions": [
       "M1-P1 plan registered: binary-style 部署契约先落 docs/templates/schema/verification，不实现 updater 或后台入口。",
       "M1-P1 executed: binary-style 部署契约、manifest schema、systemd 模板、文档入口和验证脚本已落地。",
       "M1-P2 plan registered: release bundle 与 CI 产物阶段规划构建脚本、校验脚本、migrator runtime、docker-release assets、文档同步和 artifact smoke；不实现 updater/admin/backlog。",
-      "M1-P2 executed: release bundle 构建/校验脚本、migrator runtime 边界、docker-release binary assets、文档同步和 artifact smoke 已完成；updater/admin/backlog 仍未实现。"
+      "M1-P2 executed: release bundle 构建/校验脚本、migrator runtime 边界、docker-release binary assets、文档同步和 artifact smoke 已完成；updater/admin/backlog 仍未实现。",
+      "M1-P3 plan registered: 本地 updater CLI/script core 阶段规划 helper 抽取、CLI skeleton、manifest check、download verify、lock/stage 和 docs/final gates；仍不执行 current 切换、migrator、systemd、rollback 或 admin/UOL。",
+      "M1-P3 executed: 本地 updater CLI/script core 已完成 helper 抽取、check/plan/status/dry-run、manifest 版本决策、download .partial 校验、lock/stage 预检与文档收口；仍不执行 current 切换、migrator、systemd、rollback 或 admin/UOL。"
     ],
     "blockers": [],
     "deferred": []
