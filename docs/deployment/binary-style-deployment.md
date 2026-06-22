@@ -1,6 +1,6 @@
 # Binary-Style 部署契约
 
-本文定义 GPT2Image-Pro 新增 binary-style 部署模式的首版契约。它是 Phase 1 的设计文档，用于约束后续 release artifact、updater 和 systemd 单元实现；当前不表示 binary-style 产物或在线 updater 已经可用。现有 Docker Compose 发布链路继续保留，binary-style 不替换 Docker Compose，也不改变 README 中推荐的新部署路径。
+本文定义 GPT2Image-Pro 新增 binary-style 部署模式的首版契约。它约束 release artifact、manifest、checksum、updater 和 systemd 单元实现；M1-P2 起 GitHub Release 会附加 binary-style release assets，但当前仍不表示在线 updater、本地切换、后台 admin operation 或后台 UI 已经可用。现有 Docker Compose 发布链路继续保留，binary-style 不替换 Docker Compose，也不改变 README 中推荐的新部署路径。
 
 ## 目标与非目标
 
@@ -10,10 +10,11 @@
 - 约定安装、更新、回滚时的顺序，尤其是迁移必须先于 `current` 切换。
 - 约定 release bundle 不携带 secrets、`.env`、storage 和 `.gpt2image` 运行态数据。
 - 为 Phase 2-4 的 bundle、manifest、checksum、updater CLI 和 systemd 单元提供可验证基线。
+- 说明 M1-P2 release assets 的命名、校验方式和 migrator bundle runtime 边界。
 
 非目标：
 
-- 不在本阶段实现构建产物、下载器、updater、后台在线更新入口或 systemd unit 文件。
+- 不在 M1-P2 实现下载器、updater、本地切换、重启、回滚、后台在线更新入口或后台 UI。
 - 不支持多实例滚动发布、Kubernetes、Windows、macOS 或 Docker 镜像替换。
 - 不改变 Web 生图、credits、storage、moderation、payment 或 API 路径的业务语义。
 
@@ -76,8 +77,8 @@
 `/etc/gpt2image/gpt2image.env` 至少需要包含生产必填项：
 
 ```env
-DATABASE_URL=postgresql://...
-BETTER_AUTH_SECRET=...
+# DATABASE_URL is required; set it in your private env file.
+# BETTER_AUTH_SECRET is required; generate it with openssl rand -base64 32.
 BETTER_AUTH_URL=https://your-domain.example
 NEXT_PUBLIC_APP_URL=https://your-domain.example
 LOCAL_STORAGE_PATH=/opt/gpt2image/shared/storage
@@ -124,6 +125,38 @@ Web 负责页面、API、内置定时任务和主业务入口。它读取 `/etc/
 ChatGPT Web proxy 是独立 Go 进程，默认监听 `127.0.0.1:3021` 或 env 中指定地址。Web 通过 `CHATGPT_WEB_PROXY_URL` 和 `CHATGPT_WEB_PROXY_SECRET` 访问它。proxy 的重启和健康检查不得隐式重启 PostgreSQL、Nginx 或其他同机服务。
 
 Migrator 是更新流程中的一次性步骤，不常驻。它必须在 `current symlink` 切换之前运行，并且针对待发布版本的迁移资产执行。迁移失败时停止更新，不切换 `current`，不重启 Web 到新版本。
+
+## Migrator bundle runtime
+
+M1-P2 的 release bundle 不要求目标机有仓库源码，也不需要 Git checkout 或在目标机执行 `git pull`。数据库迁移入口被收敛到 bundle 内的 `migrator/` 目录，包含以下运行边界：
+
+```text
+migrator/
+  package.json
+  pnpm-lock.yaml
+  pnpm-workspace.yaml
+  tsconfig.base.json
+  RUNTIME.md
+  packages/database/
+    package.json
+    drizzle.config.ts
+    drizzle/
+      meta/_journal.json
+      *.sql
+    src/
+    tsconfig.json
+```
+
+目标机前置条件仍是 Node.js 22、Corepack/pnpm 和运行时 `DATABASE_URL`。release bundle 不写入真实连接串；迁移命令从 `/etc/gpt2image/gpt2image.env` 或调用环境读取配置。推荐命令形态如下：
+
+```bash
+cd /opt/gpt2image/releases/<version>/migrator
+corepack enable
+pnpm install --frozen-lockfile --prod=false
+pnpm --dir packages/database db:migrate
+```
+
+该步骤是 `pre_switch` 一次性迁移，不常驻，也不承诺数据库自动回滚。M1-P2 只产出迁移运行资产；真正的下载、加锁、迁移执行、`current` 切换、重启、健康检查和回滚闭环留给后续 updater phase。
 
 ## 安装契约
 
@@ -183,6 +216,37 @@ binary-style 是新增部署模式，不替换 Docker Compose。
 | 适用 | 新部署和想用容器托管全部服务的环境 | 已有 systemd、Nginx、外部 PostgreSQL 和本机更新流程的环境 |
 
 Docker Compose 仍是 README 推荐的新部署路径。binary-style 主要服务已有成熟 systemd 发布链路、希望不拉源码也不重新构建镜像的服务器。
+
+
+## M1-P2 release assets
+
+Tag release 从 M1-P2 起会在既有 GHCR 镜像和 compose 包之外，附加 Linux x64 binary-style release assets：
+
+```text
+gpt2image-pro-<version>-linux-x64.tar.gz
+gpt2image-pro-<version>-linux-x64.tar.gz.sha256
+gpt2image-pro-<version>-linux-x64.zip
+gpt2image-pro-<version>-linux-x64.zip.sha256
+manifest.json
+SHA256SUMS
+```
+
+本地生成和校验命令：
+
+```bash
+pnpm build:web
+# 先在 services/chatgpt-web-proxy 构建 Linux x64 sidecar，再组装 bundle
+pnpm build:binary-bundle -- --version <version> --commit <commit> --proxy-binary dist/binary-style/build/chatgpt-web-proxy
+pnpm verify:binary-bundle -- --bundle-dir dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64 --manifest dist/binary-style/<version>/manifest.json --artifact dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64.tar.gz
+sha256sum -c dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64.tar.gz.sha256
+sha256sum -c dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64.zip.sha256
+tar -tzf dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64.tar.gz
+unzip -l dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64.zip
+```
+
+`manifest.json` release asset 是后续 updater 的校验入口，记录 version、commit、platform、artifact_url、artifact_sha256、minimum_supported_version、migration_mode、services 和 healthcheck。bundle 内也保留一份 manifest 供解包后本地查看；下载校验以 release asset 中的 detached `manifest.json` 和 `.sha256` 为准。
+
+M1-P2 仍不包含 updater CLI，不实现本地下载、解包、切换、重启或回滚，也不实现后台 admin operation、后台 UI、Sub2API、Codex 登录、Agent 分支、批量图片工具或 PSD。
 
 ## 后续实现约束
 

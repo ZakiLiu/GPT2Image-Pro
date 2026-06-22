@@ -289,7 +289,8 @@ function verifyDocumentationBoundary(deploymentDoc) {
   assertIncludes(
     deploymentDoc,
     [
-      "当前不表示 binary-style 产物或在线 updater 已经可用",
+      "M1-P2 起 GitHub Release 会附加 binary-style release assets",
+      "当前仍不表示在线 updater",
       "bundle 不包含 secrets",
       "manifest 只记录非敏感元数据",
       "Phase 2 生成的 artifact 必须能离线列出文件清单",

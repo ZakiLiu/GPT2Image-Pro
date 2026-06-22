@@ -21,7 +21,28 @@
       "task_count": 5,
       "completed_count": 5,
       "created_at": "2026-06-21T23:43:53+08:00"
+    },
+    {
+      "path": ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
+      "type": "plan",
+      "title": "M1-P2 Release Bundle 与 CI 产物执行计划",
+      "milestone": "M1",
+      "phase": "M1-P2",
+      "task_count": 6,
+      "created_at": "2026-06-22T10:38:24+08:00"
+    },
+    {
+      "id": "EXC-002",
+      "type": "execute",
+      "title": "M1-P2 Release Bundle 与 CI 产物执行结果",
+      "milestone": "M1",
+      "phase": "M1-P2",
+      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+      "status": "completed",
+      "task_count": 6,
+      "completed_count": 6,
+      "created_at": "2026-06-22T12:23:22+08:00"
     }
   ],
-  "last_updated": "2026-06-21T23:43:53+08:00"
+  "last_updated": "2026-06-22T12:23:22+08:00"
 }

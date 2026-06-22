@@ -13,7 +13,9 @@
     "db:generate": "turbo db:generate --filter=@repo/database",
     "db:push": "turbo db:push --filter=@repo/database",
     "db:studio": "turbo db:studio --filter=@repo/database",
-    "verify:binary-contract": "node scripts/verify-binary-deployment-contract.mjs"
+    "verify:binary-contract": "node scripts/verify-binary-deployment-contract.mjs",
+    "build:binary-bundle": "node scripts/build-binary-release-bundle.mjs",
+    "verify:binary-bundle": "node scripts/verify-binary-release-bundle.mjs"
   },
   "devDependencies": {
     "turbo": "^2.9.16"

@@ -8,7 +8,7 @@
 | 文件 | 触发 | 作用 |
 |---|---|---|
 | `.github/workflows/ci.yml` | PR / push → `dev`·`main`，手动 | 提交门禁：文档镜像、风格、类型、测试、构建、容器可构建性 |
-| `.github/workflows/docker-release.yml` | push tag `v*.*.*`，手动 | 发布：构建并推送 3 个镜像到 GHCR + 起草 GitHub Release（compose 包；binary-style assets 后续接入） |
+| `.github/workflows/docker-release.yml` | push tag `v*.*.*`，手动 | 发布：构建并推送 3 个镜像到 GHCR + 起草 GitHub Release（compose 包 + binary-style release assets） |
 | `.github/actions/setup/action.yml` | 被 ci.yml 复用 | 统一 Node 22 + pnpm + frozen-lockfile 安装 |
 | `.github/dependabot.yml` | 每周 | 依赖 / Action 安全更新自动开 PR |
 
@@ -35,8 +35,9 @@
 - 触发：推送形如 `v*.*.*` 的 tag（含预发布 `v1.0.0-rc.1`，glob `v*.*.*` 同样匹配）。
 - 构建 + 推送到 GHCR（`ghcr.io`）3 个镜像：`web`、`migrate`、`chatgpt-web-proxy`，tag 含语义 tag、`latest`、`sha-<sha>`。
 - 起草（draft）一份 GitHub Release，附 docker-compose 部署包（`.tar.gz` / `.zip`）。
-- 当前 release 产物只包含 GHCR 镜像与 compose 包；compose 包由 `docker-compose.yml`、`docker-compose.build.yml`、`.env.docker.example` 和 `README.md` 组成。
-- binary-style 仍处于契约阶段，入口为 `docs/deployment/binary-style-deployment.md`，manifest schema 为 `docs/deployment/binary-style-manifest.schema.json`。后续 M1-P2 才会把 binary-style bundle、manifest 和 checksum assets 接入该 workflow。
+- M1-P2 起，Release 同时附加 binary-style assets：`gpt2image-pro-<version>-linux-x64.tar.gz`、`gpt2image-pro-<version>-linux-x64.zip`、对应 `.sha256`、`manifest.json` 和 `SHA256SUMS`。
+- binary-style release assets 的 workflow 顺序：`pnpm verify:binary-contract` → `pnpm build:web` → `go test ./...` → `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build` → `pnpm build:binary-bundle` → `pnpm verify:binary-bundle` → Release 上传。
+- 产物校验可用：`pnpm verify:binary-bundle`、`sha256sum -c`、`tar -tzf`、`unzip -l`。binary-style assets 仍不包含 updater CLI、本地切换、重启、回滚、后台 admin operation 或后台 UI。Docker Compose / GHCR 发布链路保留且不替换。
 
 ## 版本与发布流程（对齐 §0.2）
 

@@ -34,3 +34,12 @@ keywords:
 - **Observation**: `.workflow/state.json` 不存在，符合补齐初始化结构的条件；已有 `.workflow/wiki-index.json` 不应被覆盖。
 - **Decision**: 保留 `wiki-index.json`，只创建缺失的 `.workflow/project.md`、`.workflow/state.json`、`.workflow/config.json`、`specs/`、`scratch/`、`codebase/`。
 - **Evidence**: `git status --short --branch` 显示 `?? .workflow/`；`maestro spec init` 成功创建 seed spec 文件。
+
+
+<spec-entry category="learning" keywords="node22 pnpm build-web go1.24 binary-style" date="2026-06-22" title="M1-P2 local verification environment" description="Use Node 22 and build-time env for M1-P2 local smoke" source="execute:.workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets">
+
+### M1-P2 local verification environment
+
+本机 Node 24.4.1 执行 pnpm install 在该仓库触发 heap out of memory；切到项目/CI 使用的 Node 22.22.2 后 pnpm install --frozen-lockfile 正常完成。M1-P2 smoke 还需要 build-time placeholder env 才能让 pnpm build:web 收集 page data，并临时下载 Go 1.24.13 执行 sidecar test/build。
+
+</spec-entry>

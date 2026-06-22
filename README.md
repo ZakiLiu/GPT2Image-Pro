@@ -141,8 +141,8 @@ pnpm dev:web
 本地最少需要配置：
 
 ```env
-DATABASE_URL=postgresql://user:password@host:5432/gpt2image
-BETTER_AUTH_SECRET=<random-secret>
+# DATABASE_URL is required; set it in your private env file.
+# BETTER_AUTH_SECRET is required; generate it with openssl rand -base64 32.
 BETTER_AUTH_URL=http://localhost:3000
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
@@ -165,9 +165,9 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 新部署优先用**方式一**；只有已有成熟基建（自己的库/反代/发布流程）才选**方式二**。下面分别给出两种方式的完整步骤。
 
-### binary-style 契约预留（后续）
+### binary-style release assets
 
-当前生产新部署仍以 **Docker Compose（推荐）** 为主。`docs/deployment/binary-style-deployment.md` 记录 binary-style 部署契约，用于约束后续 release assets、manifest、checksum、updater 和 systemd 单元；Phase 2 接入前，Release 仍只提供 GHCR 镜像与 compose 包，不提供可执行的 binary-style bundle。
+当前生产新部署仍以 **Docker Compose（推荐）** 为主。`docs/deployment/binary-style-deployment.md` 记录 binary-style 部署契约；M1-P2 起 tag Release 会在 GHCR 镜像与 compose 包之外附加 `gpt2image-pro-<version>-linux-x64.tar.gz`、`gpt2image-pro-<version>-linux-x64.zip`、对应 `.sha256`、`manifest.json` 和 `SHA256SUMS`。这些 assets 用于后续 updater 阶段；M1-P2 不包含 updater CLI，不实现本地切换、重启、回滚、后台 admin operation 或后台 UI。
 
 > **环境变量文件对照（别拿错模板）：**
 >
@@ -243,8 +243,8 @@ pnpm --filter @repo/web start
 生产环境建议明确配置：
 
 ```env
-DATABASE_URL=postgresql://...
-BETTER_AUTH_SECRET=...
+# DATABASE_URL is required; set it in your private env file.
+# BETTER_AUTH_SECRET is required; generate it with openssl rand -base64 32.
 BETTER_AUTH_URL=https://your-domain.example
 NEXT_PUBLIC_APP_URL=https://your-domain.example
 ```
@@ -307,7 +307,8 @@ Web 应用默认启用内置定时任务，会自动执行 pending 超时退款�
 - 构建并推送 `ghcr.io/meowfree/gpt2image-pro-migrate`
 - 构建并推送 `ghcr.io/meowfree/gpt2image-pro-chatgpt-web-proxy`
 - 创建 GitHub Release 草稿，并附带 compose 部署包
-- binary-style release assets 会在后续 Phase 2 接入；当前只保留契约入口：`docs/deployment/binary-style-deployment.md`
+- 附加 binary-style release assets：`gpt2image-pro-<version>-linux-x64.tar.gz`、`gpt2image-pro-<version>-linux-x64.zip`、对应 `.sha256`、`manifest.json`、`SHA256SUMS`
+- binary-style assets 只负责产物发布；updater CLI、后台 UI、Sub2API、Codex 登录、Agent 分支、批量图片工具和 PSD 仍未实现
 
 ```bash
 git tag -a v0.1.0 -m "v0.1.0"
