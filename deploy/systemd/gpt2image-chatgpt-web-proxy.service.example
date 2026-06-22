@@ -1,0 +1,31 @@
+# GPT2Image-Pro ChatGPT Web proxy systemd unit example.
+# The proxy is a separate sidecar process. Keep it independent from Web so the
+# updater can restart application services without touching host infrastructure.
+
+[Unit]
+Description=GPT2Image-Pro ChatGPT Web proxy
+Documentation=docs/deployment/binary-style-deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gpt2image
+Group=gpt2image
+WorkingDirectory=/opt/gpt2image/current
+Environment=CHATGPT_WEB_PROXY_BIND=127.0.0.1:3021
+Environment=CHATGPT_WEB_PROXY_PROFILE=chrome_146
+EnvironmentFile=/etc/gpt2image/gpt2image.env
+ExecStart=/opt/gpt2image/current/bin/chatgpt-web-proxy
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gpt2image/shared /var/log/gpt2image
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

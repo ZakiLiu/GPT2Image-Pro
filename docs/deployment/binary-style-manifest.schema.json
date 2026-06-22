@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpt2image.example.invalid/schemas/binary-style-manifest.schema.json",
+  "$comment": "Defines the non-sensitive release manifest consumed by the binary-style updater contract.",
+  "title": "GPT2Image-Pro Binary-Style Release Manifest",
+  "description": "Release metadata for one binary-style bundle. The first supported platform is linux-x64.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "commit",
+    "platform",
+    "artifact_url",
+    "artifact_sha256",
+    "minimum_supported_version",
+    "migration_mode",
+    "services",
+    "healthcheck"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/version"
+    },
+    "commit": {
+      "type": "string",
+      "description": "Git commit SHA used to build this release.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "platform": {
+      "type": "string",
+      "description": "Target runtime platform for this artifact.",
+      "enum": ["linux-x64"]
+    },
+    "artifact_url": {
+      "type": "string",
+      "description": "Download URL for the binary-style bundle.",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "artifact_sha256": {
+      "type": "string",
+      "description": "Hex-encoded SHA256 checksum of the bundle referenced by artifact_url.",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "minimum_supported_version": {
+      "$ref": "#/$defs/version"
+    },
+    "migration_mode": {
+      "type": "string",
+      "description": "How the updater must treat database migration before switching current symlink.",
+      "enum": ["none", "pre_switch", "manual_required"]
+    },
+    "services": {
+      "type": "object",
+      "description": "Resident systemd services managed after the release is staged.",
+      "additionalProperties": false,
+      "required": ["web", "chatgpt-web-proxy"],
+      "properties": {
+        "web": {
+          "$ref": "#/$defs/resident_service"
+        },
+        "chatgpt-web-proxy": {
+          "$ref": "#/$defs/resident_service"
+        }
+      }
+    },
+    "migration": {
+      "$ref": "#/$defs/migration_task"
+    },
+    "healthcheck": {
+      "type": "object",
+      "description": "Health checks the updater runs after service restart.",
+      "additionalProperties": false,
+      "required": ["web", "chatgpt-web-proxy"],
+      "properties": {
+        "web": {
+          "$ref": "#/$defs/healthcheck_definition"
+        },
+        "chatgpt-web-proxy": {
+          "$ref": "#/$defs/healthcheck_definition"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "description": "Release version using project tag format.",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-(?:alpha|beta|rc)\\.[0-9]+)?$"
+    },
+    "resident_service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "systemd_unit",
+        "runtime",
+        "port",
+        "restart_order",
+        "healthcheck",
+        "resident"
+      ],
+      "properties": {
+        "systemd_unit": {
+          "type": "string",
+          "pattern": "^gpt2image-[a-z0-9-]+\\.service$"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": ["next-standalone", "go-sidecar"]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "restart_order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "healthcheck": {
+          "type": "string",
+          "enum": ["web", "chatgpt-web-proxy"]
+        },
+        "resident": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "migration_task": {
+      "type": "object",
+      "description": "Optional one-shot migration task. It is not a resident service.",
+      "additionalProperties": false,
+      "required": ["runner", "lifecycle", "mode_source", "resident"],
+      "properties": {
+        "runner": {
+          "type": "string",
+          "enum": ["migrator"]
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": ["one-shot"]
+        },
+        "mode_source": {
+          "type": "string",
+          "const": "migration_mode"
+        },
+        "resident": {
+          "type": "boolean",
+          "const": false
+        }
+      }
+    },
+    "healthcheck_definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "host", "port", "timeout_seconds", "retries"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["http", "tcp"]
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "expected_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      }
+    }
+  }
+}

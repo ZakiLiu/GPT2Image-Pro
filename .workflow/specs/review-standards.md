@@ -32,3 +32,12 @@ keywords:
 ## Entries
 
 - 2026-06-21：初始化时将 AGENTS/CLAUDE 的安全和评审约束转写入 Maestro specs，后续评审优先加载本文件与 architecture constraints。
+
+
+<spec-entry category="review" keywords="binary-style,secrets,manifest,systemd,review" date="2026-06-21" title="Binary-style release artifact 禁入 secrets" description="Binary-style 契约与示例文件不得携带真实密钥" source="execute:.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec">
+
+### Binary-style release artifact 禁入 secrets
+
+Binary-style manifest example、systemd 模板和验证脚本必须避免写入真实 secrets、token、password、DATABASE_URL 或 BETTER_AUTH_SECRET。M1-P1 的 verify-binary-contract 只检查新增契约文件和示例文件，不读取运行时 env。
+
+</spec-entry>

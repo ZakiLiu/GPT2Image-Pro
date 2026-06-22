@@ -57,5 +57,19 @@
   ],
   "rollback": [
     "还原 README 与 docs/CI-CD.md 中新增的 binary-style 链接和说明。"
-  ]
+  ],
+  "status": "completed",
+  "execution": {
+    "executed_at": "2026-06-21T23:43:53+08:00",
+    "session": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+    "findings": "README 与 docs/CI-CD.md 已补充 binary-style 契约入口，明确当前 Docker Compose 仍是推荐部署，GHCR 镜像与 compose 包为当前发布产物，binary-style release assets 后续 Phase 2 接入；全部 convergence criteria 通过。",
+    "files_modified": [
+      "README.md",
+      "docs/CI-CD.md",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/TASK-004-summary.md",
+      ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/discoveries.ndjson"
+    ],
+    "tests_passed": "true",
+    "error": ""
+  }
 }

@@ -57,5 +57,19 @@
   ],
   "rollback": [
     "删除 manifest schema 与 example JSON。"
-  ]
+  ],
+  "status": "completed",
+  "execution": {
+    "executed_at": "2026-06-21T23:43:53+08:00",
+    "session": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+    "findings": "已创建 binary-style manifest schema 与 example，覆盖 linux-x64、artifact_sha256、minimum_supported_version、migration_mode、services 与 healthcheck；验证全部通过。",
+    "files_modified": [
+      "docs/deployment/binary-style-manifest.schema.json",
+      "docs/deployment/binary-style-manifest.example.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/TASK-002-summary.md",
+      ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/discoveries.ndjson"
+    ],
+    "tests_passed": "true",
+    "error": ""
+  }
 }

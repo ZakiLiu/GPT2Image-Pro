@@ -1,0 +1,29 @@
+# GPT2Image-Pro migration oneshot systemd unit example.
+# This is a pre-switch migration reference for updater/install flows only.
+# Do not enable it as a long-running service. For a candidate release, run the
+# same unit shape with WorkingDirectory pointed at that candidate before the
+# /opt/gpt2image/current symlink is switched.
+
+[Unit]
+Description=GPT2Image-Pro pre-switch migration
+Documentation=docs/deployment/binary-style-deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=gpt2image
+Group=gpt2image
+WorkingDirectory=/opt/gpt2image/current
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/gpt2image/gpt2image.env
+ExecStart=/usr/bin/env pnpm --dir packages/database db:migrate
+RemainAfterExit=no
+TimeoutStartSec=300
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gpt2image/shared /var/log/gpt2image
+UMask=0077

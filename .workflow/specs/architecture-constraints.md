@@ -51,3 +51,12 @@ keywords:
 
 - 2026-06-21：初始化时确认 UOL 目录已存在，`packages/shared/src/uol/operations/index.ts` 通过副作用导入注册全域 operation。
 - 2026-06-21：初始化时确认外部 API、图像生成、账号池、积分、订阅、存储、审核和客服均已有对应测试或 UOL 注册文件信号。
+
+
+<spec-entry category="arch" keywords="binary-style,deploy,manifest,systemd,updater,m1-p1" date="2026-06-21" title="M1-P1 binary-style 部署契约边界" description="Binary-style 在线更新首阶段只落契约和验证，不替换 Docker Compose" source="execute:.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec">
+
+### M1-P1 binary-style 部署契约边界
+
+M1-P1 已执行为部署契约阶段，只落地 docs/deployment、deploy/systemd、manifest schema/example 和 verify:binary-contract。当前不实现 release bundle、updater CLI、systemd 安装或后台在线更新入口；Docker Compose 仍是推荐部署路径，binary-style 是新增部署模式。
+
+</spec-entry>

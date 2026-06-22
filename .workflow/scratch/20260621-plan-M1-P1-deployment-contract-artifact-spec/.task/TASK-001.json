@@ -56,5 +56,18 @@
   ],
   "rollback": [
     "删除 docs/deployment/binary-style-deployment.md。"
-  ]
+  ],
+  "status": "completed",
+  "execution": {
+    "executed_at": "2026-06-21T23:43:53+08:00",
+    "session": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+    "findings": "新增 binary-style 部署契约文档，明确 Linux x64 单实例 systemd、releases/current/shared/env/log、迁移先于切换、回滚和 Docker Compose 差异；所有收敛验证通过。",
+    "files_modified": [
+      "docs/deployment/binary-style-deployment.md",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/TASK-001-summary.md",
+      ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/discoveries.ndjson"
+    ],
+    "tests_passed": "true",
+    "error": ""
+  }
 }

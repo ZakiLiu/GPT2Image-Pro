@@ -58,6 +58,8 @@ rollout-*.jsonl
 !.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json
 !.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/
 !.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/*.json
+!.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/
+!.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/*.md
 .workflow/archive/
 .workflow/kg/
 .workflow/milestones/M-adhoc-*/

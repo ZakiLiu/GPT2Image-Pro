@@ -165,6 +165,10 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 新部署优先用**方式一**；只有已有成熟基建（自己的库/反代/发布流程）才选**方式二**。下面分别给出两种方式的完整步骤。
 
+### binary-style 契约预留（后续）
+
+当前生产新部署仍以 **Docker Compose（推荐）** 为主。`docs/deployment/binary-style-deployment.md` 记录 binary-style 部署契约，用于约束后续 release assets、manifest、checksum、updater 和 systemd 单元；Phase 2 接入前，Release 仍只提供 GHCR 镜像与 compose 包，不提供可执行的 binary-style bundle。
+
 > **环境变量文件对照（别拿错模板）：**
 >
 > | 部署方式 | 复制哪个模板 | 实际读取 |
@@ -303,6 +307,7 @@ Web 应用默认启用内置定时任务，会自动执行 pending 超时退款�
 - 构建并推送 `ghcr.io/meowfree/gpt2image-pro-migrate`
 - 构建并推送 `ghcr.io/meowfree/gpt2image-pro-chatgpt-web-proxy`
 - 创建 GitHub Release 草稿，并附带 compose 部署包
+- binary-style release assets 会在后续 Phase 2 接入；当前只保留契约入口：`docs/deployment/binary-style-deployment.md`
 
 ```bash
 git tag -a v0.1.0 -m "v0.1.0"

@@ -1,0 +1,39 @@
+# GPT2Image-Pro Web systemd unit example.
+# Copy to /etc/systemd/system/gpt2image-web.service and adjust only the
+# documented install root if the deployment does not use /opt/gpt2image.
+# Service boundary: update tooling should manage only GPT2Image-Pro units,
+# not database, reverse proxy, container runtime, or unrelated host services.
+
+[Unit]
+Description=GPT2Image-Pro Web
+Documentation=docs/deployment/binary-style-deployment.md
+After=network-online.target gpt2image-chatgpt-web-proxy.service
+Wants=network-online.target gpt2image-chatgpt-web-proxy.service
+
+[Service]
+Type=simple
+User=gpt2image
+Group=gpt2image
+WorkingDirectory=/opt/gpt2image/current/apps/web/.next/standalone/apps/web
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+Environment=LOCAL_STORAGE_PATH=/opt/gpt2image/shared/storage
+Environment=GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH=/opt/gpt2image/shared/.gpt2image/super-admin-credentials.txt
+Environment=ISNET_MODEL_PATH=/opt/gpt2image/current/apps/web/.next/standalone/apps/web/models/isnet.onnx
+EnvironmentFile=/etc/gpt2image/gpt2image.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gpt2image/shared /var/log/gpt2image
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

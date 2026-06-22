@@ -63,5 +63,19 @@
   ],
   "rollback": [
     "删除 scripts/verify-binary-deployment-contract.mjs，并移除 package.json 的 verify:binary-contract script。"
-  ]
+  ],
+  "status": "completed",
+  "execution": {
+    "executed_at": "2026-06-21T23:43:53+08:00",
+    "session": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+    "findings": "新增无外部依赖 binary-style 契约验证脚本与 package.json 命令；已验证 manifest schema/example、linux-x64、artifact_sha256、minimum_supported_version、systemd 模板和示例 secrets 边界，并写入 summary 与 discoveries。",
+    "files_modified": [
+      "scripts/verify-binary-deployment-contract.mjs",
+      "package.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/TASK-005-summary.md",
+      ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/discoveries.ndjson"
+    ],
+    "tests_passed": "true",
+    "error": ""
+  }
 }

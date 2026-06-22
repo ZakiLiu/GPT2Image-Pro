@@ -12,7 +12,8 @@
     "build:web": "turbo build --filter=@repo/web",
     "db:generate": "turbo db:generate --filter=@repo/database",
     "db:push": "turbo db:push --filter=@repo/database",
-    "db:studio": "turbo db:studio --filter=@repo/database"
+    "db:studio": "turbo db:studio --filter=@repo/database",
+    "verify:binary-contract": "node scripts/verify-binary-deployment-contract.mjs"
   },
   "devDependencies": {
     "turbo": "^2.9.16"

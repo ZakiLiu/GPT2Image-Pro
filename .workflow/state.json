@@ -1,7 +1,7 @@
 {
   "version": "3.1",
   "project_name": "GPT2Image-Pro",
-  "status": "planned",
+  "status": "executed",
   "current_milestone": "M1",
   "current_task_id": null,
   "milestones": [
@@ -69,12 +69,28 @@
       "plan_file": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
       "task_count": 5,
       "created_at": "2026-06-21T23:11:50+08:00"
+    },
+    {
+      "id": "EXC-001",
+      "type": "execute",
+      "milestone": "M1",
+      "phase": "M1-P1",
+      "scope": "phase",
+      "path": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+      "status": "completed",
+      "depends_on": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+      "results_file": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/results.csv",
+      "context_file": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/context.md",
+      "harvested": true,
+      "created_at": "2026-06-21T23:43:53+08:00",
+      "completed_at": "2026-06-21T23:43:53+08:00"
     }
   ],
-  "last_updated": "2026-06-21T23:11:50+08:00",
+  "last_updated": "2026-06-21T23:43:53+08:00",
   "accumulated_context": {
     "key_decisions": [
-      "M1-P1 plan registered: binary-style 部署契约先落 docs/templates/schema/verification，不实现 updater 或后台入口。"
+      "M1-P1 plan registered: binary-style 部署契约先落 docs/templates/schema/verification，不实现 updater 或后台入口。",
+      "M1-P1 executed: binary-style 部署契约、manifest schema、systemd 模板、文档入口和验证脚本已落地。"
     ],
     "blockers": [],
     "deferred": []

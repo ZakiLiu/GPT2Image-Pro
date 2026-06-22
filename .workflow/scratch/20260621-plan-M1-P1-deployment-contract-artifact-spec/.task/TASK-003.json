@@ -65,5 +65,20 @@
   ],
   "rollback": [
     "删除 deploy/systemd/gpt2image-*.service.example。"
-  ]
+  ],
+  "status": "completed",
+  "execution": {
+    "executed_at": "2026-06-21T23:43:53+08:00",
+    "session": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+    "findings": "已新增 Web、ChatGPT Web proxy、pre-switch migration 三个 systemd 示例模板；按任务定义读取 read_first 文件并完成 summary 与 discoveries 追加，全部 convergence criteria 通过。",
+    "files_modified": [
+      "deploy/systemd/gpt2image-web.service.example",
+      "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+      "deploy/systemd/gpt2image-migrate.service.example",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/TASK-003-summary.md",
+      ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/discoveries.ndjson"
+    ],
+    "tests_passed": "true",
+    "error": ""
+  }
 }
