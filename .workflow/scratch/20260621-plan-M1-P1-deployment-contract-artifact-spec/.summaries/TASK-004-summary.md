@@ -30,7 +30,9 @@
 ## Orchestrator Verification
 
 - [PASS] `rg -n "binary-style|docs/deployment/binary-style-deployment.md|Docker Compose（推荐）" README.md`
-  - evidence: 158:| | **方式一：Docker Compose（推荐）** | **方式二：源码部署** | | 168:### binary-style 契约预留（后续） | 170:当前生产新部署仍以 **Docker Compose（推荐）** 为主。`docs/deployment/binary-style-deployment.md` 记录 binary-style 部署契约，用于约束后续 release assets、manifest、checksum、updater 和 systemd 单元；Phase 2 接入前，Release 仍只提供 GHCR 镜像与 compose 包，不提供可执行的 binary-style bundle。 | 181:### 方式一：Docker Compose（推荐） | 310:- binary-style release assets 会在后续 Phase 2 接入；当前只保留契约入口：`docs/deployment/binary-style-deployment.md`
+  - evidence: 158:| | **方式一：Docker Compose（推荐）** | **方式二：源码部署** |
+ | 168:### binary-style 契约预留（后续） | 170:当前生产新部署仍以 **Docker Compose（推荐）** 为主。`docs/deployment/binary-style-deployment.md` 记录 binary-style 部署契约，用于约束后续 release assets、manifest、checksum、updater 和 systemd 单元；Phase 2 接入前，Release 仍只提供 GHCR 镜像与 compose 包，不提供可执行的 binary-style bundle。 | 181:### 方式一：Docker Compose（推荐）
+ | 310:- binary-style release assets 会在后续 Phase 2 接入；当前只保留契约入口：`docs/deployment/binary-style-deployment.md`
 - [PASS] `rg -n "binary-style|manifest|checksum|compose 包|GHCR" docs/CI-CD.md`
   - evidence: 11:| `.github/workflows/docker-release.yml` | push tag `v*.*.*`，手动 | 发布：构建并推送 3 个镜像到 GHCR + 起草 GitHub Release（compose 包；binary-style assets 后续接入） | | 36:- 构建 + 推送到 GHCR（`ghcr.io`）3 个镜像：`web`、`migrate`、`chatgpt-web-proxy`，tag 含语义 tag、`latest`、`sha-<sha>`。 | 38:- 当前 release 产物只包含 GHCR 镜像与 compose 包；compose 包由 `docker-compose.yml`、`docker-compose.build.yml`、`.env.docker.example` 和 `README.md` 组成。 | 39:- binary-style 仍处于契约阶段，入口为 `docs/deployment/binary-style-deployment.md`，manifest schema 为 `docs/de
 - [PASS] `rg -n "binary-style.*已发布|在线更新.*已可用" README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md`
