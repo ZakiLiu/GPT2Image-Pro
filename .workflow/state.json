@@ -179,9 +179,42 @@
       "harvested": true,
       "created_at": "2026-06-22T22:20:00+08:00",
       "completed_at": "2026-06-22T22:20:00+08:00"
+    },
+    {
+      "id": "PLN-005",
+      "path": ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs",
+      "type": "plan",
+      "title": "M1-P5 Admin Operation、后台入口与文档收口执行计划",
+      "scope": "phase",
+      "milestone": "M1",
+      "phase": "M1-P5",
+      "depends_on": [
+        ".workflow/roadmap.md",
+        ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback",
+        ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback"
+      ],
+      "plan_file": ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/plan.json",
+      "task_count": 7,
+      "check_status": "passed",
+      "created_at": "2026-06-22T23:28:22+08:00"
+    },
+    {
+      "id": "EXC-005",
+      "type": "execute",
+      "milestone": "M1",
+      "phase": "M1-P5",
+      "scope": "phase",
+      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs",
+      "status": "completed",
+      "depends_on": "PLN-005",
+      "results_file": ".workflow\\.csv-wave\\20260622-execute-scratch-M1-P5-admin-operation-docs\\results.csv",
+      "context_file": ".workflow\\.csv-wave\\20260622-execute-scratch-M1-P5-admin-operation-docs\\context.md",
+      "harvested": true,
+      "created_at": "2026-06-23T01:21:55+08:00",
+      "completed_at": "2026-06-23T01:21:55+08:00"
     }
   ],
-  "last_updated": "2026-06-22T22:20:00+08:00",
+  "last_updated": "2026-06-23T01:21:55+08:00",
   "accumulated_context": {
     "key_decisions": [
       "M1-P1 plan registered: binary-style 部署契约先落 docs/templates/schema/verification，不实现 updater 或后台入口。",
@@ -191,7 +224,9 @@
       "M1-P3 plan registered: 本地 updater CLI/script core 阶段规划 helper 抽取、CLI skeleton、manifest check、download verify、lock/stage 和 docs/final gates；仍不执行 current 切换、migrator、systemd、rollback 或 admin/UOL。",
       "M1-P3 executed: 本地 updater CLI/script core 已完成 helper 抽取、check/plan/status/dry-run、manifest 版本决策、download .partial 校验、lock/stage 预检与文档收口；仍不执行 current 切换、migrator、systemd、rollback 或 admin/UOL。",
       "M1-P4 plan registered: updater apply 阶段规划 preflight、candidate migrator、releases/current 原子切换、白名单 systemd restart、healthcheck 与应用层 rollback；Admin/UOL/UI 留到 M1-P5。",
-      "M1-P4 executed: updater apply/update 已完成 preflight、release install、candidate migrator、current 切换、白名单 systemd restart、healthcheck、应用层 rollback、自测、文档和 package 脚本；Admin/UOL/UI 留到 M1-P5。"
+      "M1-P4 executed: updater apply/update 已完成 preflight、release install、candidate migrator、current 切换、白名单 systemd restart、healthcheck、应用层 rollback、自测、文档和 package 脚本；Admin/UOL/UI 留到 M1-P5。",
+      "M1-P5 plan registered: Admin Operation、后台入口与文档收口阶段规划 updater runtime bundle inclusion、update UOL operations、default-off web wrapper、thin admin actions、admin status UI、MCP guardrails and docs/final gates.",
+      "M1-P5 executed: Admin Operation、后台入口与文档收口已完成；update.status/update.check/update.apply 默认关闭并经 UOL/adminAction/web wrapper/UI/MCP guardrails 串联，生产 apply 仍需服务端 UPDATER_* 配置且 DB migration 不自动 rollback。"
     ],
     "blockers": [],
     "deferred": []

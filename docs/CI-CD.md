@@ -35,9 +35,9 @@
 - 触发：推送形如 `v*.*.*` 的 tag（含预发布 `v1.0.0-rc.1`，glob `v*.*.*` 同样匹配）。
 - 构建 + 推送到 GHCR（`ghcr.io`）3 个镜像：`web`、`migrate`、`chatgpt-web-proxy`，tag 含语义 tag、`latest`、`sha-<sha>`。
 - 起草（draft）一份 GitHub Release，附 docker-compose 部署包（`.tar.gz` / `.zip`）。
-- M1-P2 起，Release 同时附加 binary-style assets：`gpt2image-pro-<version>-linux-x64.tar.gz`、`gpt2image-pro-<version>-linux-x64.zip`、对应 `.sha256`、`manifest.json` 和 `SHA256SUMS`。
+- M1-P2 起，Release 同时附加 binary-style assets：`gpt2image-pro-<version>-linux-x64.tar.gz`、`gpt2image-pro-<version>-linux-x64.zip`、对应 `.sha256`、`manifest.json` 和 `SHA256SUMS`；M1-P5 后 bundle 内还包含 `scripts/local-updater.mjs` 与 `scripts/binary-style-release-lib.mjs` updater runtime scripts。
 - binary-style release assets 的 workflow 顺序：`pnpm verify:binary-contract` → `pnpm build:web` → `go test ./...` → `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build` → `pnpm build:binary-bundle` → `pnpm verify:binary-bundle` → Release 上传。
-- 产物校验可用：`pnpm verify:binary-bundle`、`sha256sum -c`、`tar -tzf`、`unzip -l`。binary-style assets 仍不包含 updater CLI、本地切换、重启、回滚、后台 admin operation 或后台 UI。Docker Compose / GHCR 发布链路保留且不替换。
+- 产物校验可用：`pnpm verify:binary-bundle`、`sha256sum -c`、`tar -tzf`、`unzip -l`。后台 Admin Operation 默认关闭，UOL 操作为 `update.status`、`update.check`、`update.apply`；生产启用前必须配置 `UPDATER_ENABLED`、`UPDATER_SCRIPT_PATH`、`UPDATER_INSTALL_ROOT`、`UPDATER_ENV_FILE`，并建议用 `MCP_DENIED_OPS=update.apply` 或 `MCP_READ_ONLY=1` 阻断外部 MCP destructive apply。Docker Compose / GHCR 发布链路保留且不替换。
 
 ## 版本与发布流程（对齐 §0.2）
 

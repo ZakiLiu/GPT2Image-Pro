@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 验证 binary-style 部署契约文件是否满足 M1-P1 收口要求。
+ * 验证 binary-style 部署契约文件是否满足 M1-P1 至 M1-P5 收口要求。
  * 使用方：开发者在本地或 CI 中手动运行 `pnpm verify:binary-contract`。
  * 关键依赖：仅使用 Node.js 内置模块，读取部署契约文档、manifest schema、manifest 示例与 systemd 模板；不访问网络、不读取运行时 secrets。
  */
@@ -294,6 +294,16 @@ function verifyDocumentationBoundary(deploymentDoc) {
       "bundle 不包含 secrets",
       "manifest 只记录非敏感元数据",
       "Phase 2 生成的 artifact 必须能离线列出文件清单",
+      "M1-P5 Admin Operation 与后台入口",
+      "`update.status`",
+      "`update.check`",
+      "`update.apply`",
+      "UPDATER_ENABLED",
+      "UPDATER_SCRIPT_PATH",
+      "UPDATER_INSTALL_ROOT",
+      "UPDATER_ENV_FILE",
+      "MCP_DENIED_OPS=update.apply",
+      "Docker Compose",
     ],
     contractFiles.deploymentDoc,
   );

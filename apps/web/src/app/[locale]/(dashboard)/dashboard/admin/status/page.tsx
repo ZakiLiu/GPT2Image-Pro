@@ -18,7 +18,10 @@ import {
   user,
 } from "@repo/database/schema";
 import { getUserRoleById } from "@repo/shared/auth/role-server";
-import { canViewImageBackendPool } from "@repo/shared/auth/roles";
+import {
+  canAccessAdminArea,
+  canViewImageBackendPool,
+} from "@repo/shared/auth/roles";
 import { getServerSession } from "@repo/shared/auth/server";
 import { formatCredits } from "@repo/shared/credits/format";
 import {
@@ -45,6 +48,7 @@ import {
 import { classifyGenerationError } from "@/features/image-generation/sla";
 import { GLOBAL_STATUS_CACHE_TAG } from "./cache-tag";
 import { RefreshStatusButton } from "./refresh-status-button";
+import { UpdateStatusCard } from "./update-status-card";
 
 export const dynamic = "force-dynamic";
 
@@ -297,7 +301,7 @@ function buildErrorPageHref(
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value))
+  return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
@@ -1728,6 +1732,7 @@ export default async function GlobalStatusPage({
   }
 
   const role = await getUserRoleById(session.user.id);
+  const canManageUpdates = canAccessAdminArea(role);
   if (!canViewImageBackendPool(role)) {
     redirect(`/${locale}/dashboard`);
   }
@@ -1777,6 +1782,10 @@ export default async function GlobalStatusPage({
           </Badge>
         </div>
       </div>
+
+      {canManageUpdates ? (
+        <UpdateStatusCard locale={locale} canApply={canManageUpdates} />
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard

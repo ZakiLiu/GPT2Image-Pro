@@ -20,6 +20,8 @@ import "./user-auth";
 import "./image-backend-pool";
 // 系统设置域
 import "./system-settings";
+// 在线更新域
+import "./update";
 // 存储域
 import "./storage";
 // 内容审核域

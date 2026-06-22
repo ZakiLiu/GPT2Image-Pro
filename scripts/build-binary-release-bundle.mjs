@@ -341,6 +341,16 @@ async function assembleBundle({ bundleDir, proxyBinary }) {
   await copyPath(path.resolve(proxyBinary), proxyTarget);
   await chmod(proxyTarget, 0o755);
 
+  const scriptsDir = path.join(bundleDir, "scripts");
+  await copyRequired(
+    "scripts/local-updater.mjs",
+    path.join(scriptsDir, "local-updater.mjs"),
+  );
+  await copyRequired(
+    "scripts/binary-style-release-lib.mjs",
+    path.join(scriptsDir, "binary-style-release-lib.mjs"),
+  );
+
   const migratorDir = path.join(bundleDir, "migrator");
   await copyRequired("package.json", path.join(migratorDir, "package.json"));
   await copyRequired("pnpm-lock.yaml", path.join(migratorDir, "pnpm-lock.yaml"));

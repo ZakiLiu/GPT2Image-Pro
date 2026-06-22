@@ -39,6 +39,8 @@ export const requiredBundlePaths = [
   "migrator/packages/database/tsconfig.json",
   "migrator/RUNTIME.md",
   "bin/chatgpt-web-proxy",
+  "scripts/local-updater.mjs",
+  "scripts/binary-style-release-lib.mjs",
   "deploy/systemd/gpt2image-web.service.example",
   "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
   "deploy/systemd/gpt2image-migrate.service.example",

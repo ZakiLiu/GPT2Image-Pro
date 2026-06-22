@@ -12,7 +12,7 @@
  * 设计决策：
  * - 最小暴露面：只暴露管理操作，不暴露用户侧或系统内部操作
  * - 工具名转换：点号(.) → 下划线(_)，兼容 MCP 工具名称规范
- * - JSON Schema 从 Zod 手动转换（避免引入 zod-to-json-schema 依赖）
+ * - JSON Schema 优先使用 Zod v4 toJSONSchema，失败时手动 fallback
  * - 添加 readOnlyHint / destructiveHint 注解供 agent 决策参考
  */
 import type { Principal } from "../uol/principal";
@@ -88,7 +88,7 @@ export function toolNameToOperationName(toolName: string): string {
 function isOperationExposable(
   op: OperationDefinition,
   deniedOps: string[],
-  readOnlyMode: boolean,
+  readOnlyMode: boolean
 ): boolean {
   // 权限白名单过滤
   if (!ALLOWED_ACCESS_KINDS.has(op.access.kind)) return false;
@@ -111,22 +111,37 @@ function isOperationExposable(
 /**
  * 从 Zod schema 生成简化的 JSON Schema。
  *
- * 不完整实现（避免引入 zod-to-json-schema 依赖），
- * 优先确保 MCP agent 能理解输入结构。
+ * 优先使用 Zod v4 官方 toJSONSchema，避免手动解析内部结构漂移；
+ * fallback 仅用于兼容旧 schema。
  * 对于无法解析的复杂 schema 回退为 object 类型。
  */
-function zodToSimpleJsonSchema(
-  zodSchema: unknown,
-): Record<string, unknown> {
-  // Zod v4 内部结构：尝试提取 _zod 元数据
-  // 对于未知结构，回退为通用 object schema
+function zodToSimpleJsonSchema(zodSchema: unknown): Record<string, unknown> {
+  // Zod v4 暴露 toJSONSchema，优先走官方转换，避免依赖内部字段漂移。
+  try {
+    const maybeJsonSchema = zodSchema as {
+      toJSONSchema?: () => unknown;
+    };
+    if (typeof maybeJsonSchema.toJSONSchema === "function") {
+      const jsonSchema = maybeJsonSchema.toJSONSchema();
+      if (
+        jsonSchema &&
+        typeof jsonSchema === "object" &&
+        !Array.isArray(jsonSchema)
+      ) {
+        return jsonSchema as Record<string, unknown>;
+      }
+    }
+  } catch {
+    // 官方转换失败时继续走兼容 fallback。
+  }
+
+  // Zod v3/v4 内部结构：尽力提取 _zod/_def 元数据。
+  // 对于未知结构，回退为通用 object schema。
   try {
     const schema = zodSchema as Record<string, unknown>;
 
     // Zod v4: schema._zod.def 包含类型信息
-    const zod = schema._zod as
-      | { def?: Record<string, unknown> }
-      | undefined;
+    const zod = schema._zod as { def?: Record<string, unknown> } | undefined;
     if (zod?.def) {
       return buildJsonSchemaFromZodDef(zod.def);
     }
@@ -147,15 +162,20 @@ function zodToSimpleJsonSchema(
  * 从 Zod 内部 def 构建 JSON Schema（尽力而为）。
  */
 function buildJsonSchemaFromZodDef(
-  def: Record<string, unknown>,
+  def: Record<string, unknown>
 ): Record<string, unknown> {
-  const typeName = def.typeName as string | undefined;
+  const typeName = (def.typeName ?? def.type) as string | undefined;
 
   switch (typeName) {
-    case "ZodObject": {
-      const shape = def.shape as
-        | Record<string, unknown>
-        | undefined;
+    case "ZodObject":
+    case "object": {
+      const rawShape = def.shape;
+      const shape =
+        typeof rawShape === "function"
+          ? (rawShape as () => Record<string, unknown>)()
+          : rawShape && typeof rawShape === "object" && !Array.isArray(rawShape)
+            ? (rawShape as Record<string, unknown>)
+            : undefined;
       if (!shape) {
         return { type: "object", properties: {} };
       }
@@ -164,14 +184,18 @@ function buildJsonSchemaFromZodDef(
       for (const [key, fieldSchema] of Object.entries(shape)) {
         properties[key] = zodToSimpleJsonSchema(fieldSchema);
         // 检查是否为 optional
-        const fieldZod = (fieldSchema as Record<string, unknown>)
-          ._zod as { def?: Record<string, unknown> } | undefined;
+        const fieldZod = (fieldSchema as Record<string, unknown>)._zod as
+          | { def?: Record<string, unknown> }
+          | undefined;
         const fieldDef =
           fieldZod?.def ??
           ((fieldSchema as Record<string, unknown>)._def as
             | Record<string, unknown>
             | undefined);
-        if (fieldDef?.typeName !== "ZodOptional") {
+        const fieldTypeName = fieldDef
+          ? ((fieldDef.typeName ?? fieldDef.type) as string | undefined)
+          : undefined;
+        if (fieldTypeName !== "ZodOptional" && fieldTypeName !== "optional") {
           required.push(key);
         }
       }
@@ -183,37 +207,42 @@ function buildJsonSchemaFromZodDef(
       return result;
     }
     case "ZodString":
+    case "string":
       return { type: "string" };
     case "ZodNumber":
+    case "number":
       return { type: "number" };
     case "ZodBoolean":
+    case "boolean":
       return { type: "boolean" };
-    case "ZodArray": {
-      const itemType = def.type as unknown;
+    case "ZodArray":
+    case "array": {
+      const itemType = (def.element ?? def.type) as unknown;
       return {
         type: "array",
-        items: itemType
-          ? zodToSimpleJsonSchema(itemType)
-          : {},
+        items:
+          itemType && typeof itemType !== "string"
+            ? zodToSimpleJsonSchema(itemType)
+            : {},
       };
     }
-    case "ZodEnum": {
-      const values = def.values as string[] | undefined;
-      return values
-        ? { type: "string", enum: values }
-        : { type: "string" };
+    case "ZodEnum":
+    case "enum": {
+      const entries = def.entries as Record<string, string> | undefined;
+      const values =
+        (def.values as string[] | undefined) ??
+        (entries ? Object.values(entries) : undefined);
+      return values ? { type: "string", enum: values } : { type: "string" };
     }
-    case "ZodOptional": {
+    case "ZodOptional":
+    case "optional": {
       const innerType = def.innerType as unknown;
-      return innerType
-        ? zodToSimpleJsonSchema(innerType)
-        : {};
+      return innerType ? zodToSimpleJsonSchema(innerType) : {};
     }
-    case "ZodNullable": {
+    case "ZodNullable":
+    case "nullable": {
       const inner = def.innerType as unknown;
-      const base = inner
-        ? zodToSimpleJsonSchema(inner)
-        : {};
+      const base = inner ? zodToSimpleJsonSchema(inner) : {};
       return { ...base, nullable: true };
     }
     default:
@@ -231,9 +260,7 @@ function buildJsonSchemaFromZodDef(
  * @param _principal - 当前 MCP 调用者身份（预留扩展）
  * @returns 可暴露的 MCP 工具定义数组
  */
-export function buildAdminMcpTools(
-  _principal: Principal,
-): McpToolDefinition[] {
+export function buildAdminMcpTools(_principal: Principal): McpToolDefinition[] {
   const deniedOps = getMcpDeniedOps();
   const readOnlyMode = getMcpReadOnlyMode();
   const allOps = listOperations();

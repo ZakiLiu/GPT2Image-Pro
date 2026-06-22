@@ -85,7 +85,29 @@
       "task_count": 7,
       "completed_count": 7,
       "created_at": "2026-06-22T22:20:00+08:00"
+    },
+    {
+      "id": "PLN-005",
+      "path": ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs",
+      "type": "plan",
+      "title": "M1-P5 Admin Operation、后台入口与文档收口执行计划",
+      "milestone": "M1",
+      "phase": "M1-P5",
+      "task_count": 7,
+      "created_at": "2026-06-22T23:28:22+08:00"
+    },
+    {
+      "id": "EXC-005",
+      "type": "execute",
+      "title": "M1-P5 Admin Operation、后台入口与文档收口执行结果",
+      "milestone": "M1",
+      "phase": "M1-P5",
+      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs",
+      "status": "completed",
+      "task_count": 7,
+      "completed_count": 7,
+      "created_at": "2026-06-23T01:21:55+08:00"
     }
   ],
-  "last_updated": "2026-06-22T22:20:00+08:00"
+  "last_updated": "2026-06-23T01:21:55+08:00"
 }

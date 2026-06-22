@@ -22,6 +22,7 @@ export type OperationDomain =
   | "user-auth"
   | "image-backend-pool"
   | "system-settings"
+  | "update"
   | "storage"
   | "moderation"
   | "external-api"

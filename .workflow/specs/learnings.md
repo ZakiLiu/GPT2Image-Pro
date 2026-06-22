@@ -51,3 +51,11 @@ keywords:
 M1-P4 apply/update 只恢复应用层 current 与 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service；数据库 migration 成功后不自动 rollback。生产命令必须显式提供 --install-root /opt/gpt2image、--manifest、--env-file /etc/gpt2image/gpt2image.env、--run-id 和 artifact 路径，package.json 只暴露 updater:self-test:apply，Admin/UOL/UI 留到 M1-P5。
 
 </spec-entry>
+
+<spec-entry category="learning" keywords="m1-p5,updater,uol,admin,mcp" date="2026-06-22" title="M1-P5 admin updater UOL boundary" description="Default-off admin updater operations and MCP destructive guardrails" source="execute:.workflow/scratch/20260622-plan-M1-P5-admin-operation-docs">
+
+### M1-P5 admin updater UOL boundary
+
+M1-P5 将 online updater 暴露为默认关闭的 Admin Operation：update.status/update.check/update.apply 先注册到 UOL，apps/web 通过 server-only wrapper late binding 到 local-updater.mjs。生产必须由服务端 env 提供 UPDATER_ENABLED、UPDATER_SCRIPT_PATH、UPDATER_INSTALL_ROOT、UPDATER_ENV_FILE；请求体不得覆盖 install root 或 env file。MCP 生产侧可用 MCP_READ_ONLY=1 或 MCP_DENIED_OPS=update.apply 阻断 destructive apply。
+
+</spec-entry>

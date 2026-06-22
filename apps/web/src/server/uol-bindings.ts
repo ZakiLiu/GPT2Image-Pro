@@ -24,6 +24,14 @@ import type { Principal, OperationContext } from "@repo/shared/uol";
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import type { ImageQuality } from "@/features/image-generation/types";
 import { listAdminImageBackendPool } from "@/features/image-backend-pool/service";
+import {
+  applyUpdater,
+  checkUpdater,
+  getUpdaterStatus,
+  type UpdateApplyInput,
+  type UpdateCheckInput,
+  type UpdateStatusInput,
+} from "./updater-admin";
 
 // ---------------------------------------------------------------------------
 // image-generation 域
@@ -155,6 +163,49 @@ bindExecute(
 // TODO: pool.deleteSub2ApiTask - deleteSub2ApiAutoSyncTaskAction
 // TODO: pool.cronSub2ApiSync - cron 调度逻辑
 // TODO: pool.cronRefreshStale - cron 调度逻辑
+
+// ---------------------------------------------------------------------------
+// update 域
+// ---------------------------------------------------------------------------
+
+/**
+ * update.status - 读取本机 binary-style 安装状态
+ * 源: apps/web/src/server/updater-admin.ts
+ */
+bindExecute(
+  "update.status",
+  async (
+    input: UpdateStatusInput,
+    _principal: Principal,
+    _ctx: OperationContext,
+  ) => getUpdaterStatus(input),
+);
+
+/**
+ * update.check - 检查 binary-style release manifest
+ * 源: apps/web/src/server/updater-admin.ts
+ */
+bindExecute(
+  "update.check",
+  async (
+    input: UpdateCheckInput,
+    _principal: Principal,
+    _ctx: OperationContext,
+  ) => checkUpdater(input),
+);
+
+/**
+ * update.apply - 执行受保护的本机在线更新
+ * 源: apps/web/src/server/updater-admin.ts
+ */
+bindExecute(
+  "update.apply",
+  async (
+    input: UpdateApplyInput,
+    _principal: Principal,
+    _ctx: OperationContext,
+  ) => applyUpdater(input),
+);
 
 // ---------------------------------------------------------------------------
 // user-auth 域

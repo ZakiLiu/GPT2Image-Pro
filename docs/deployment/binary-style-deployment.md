@@ -1,6 +1,6 @@
 # Binary-Style 部署契约
 
-本文定义 GPT2Image-Pro 新增 binary-style 部署模式的首版契约。它约束 release artifact、manifest、checksum、updater 和 systemd 单元实现；M1-P2 起 GitHub Release 会附加 binary-style release assets，M1-P3/M1-P4 已提供本地 updater CLI/script core 与受限 apply/update 闭环，但后台 Admin Operation、UOL operation、server action、api route 或后台 UI 仍留到 M1-P5。现有 Docker Compose 发布链路继续保留，binary-style 不替换 Docker Compose，也不改变 README 中推荐的新部署路径。
+本文定义 GPT2Image-Pro 新增 binary-style 部署模式的首版契约。它约束 release artifact、manifest、checksum、updater 和 systemd 单元实现；M1-P2 起 GitHub Release 会附加 binary-style release assets，M1-P3/M1-P4 已提供本地 updater CLI/script core 与受限 apply/update 闭环，M1-P5 在此基础上提供默认关闭的后台 Admin Operation、thin server action 与状态页入口。现有 Docker Compose 发布链路继续保留，binary-style 不替换 Docker Compose，也不改变 README 中推荐的新部署路径。
 
 ## 目标与非目标
 
@@ -42,7 +42,8 @@
       apps/web/public/
       packages/database/
       services/chatgpt-web-proxy/chatgpt-web-proxy
-      scripts/
+      scripts/local-updater.mjs
+      scripts/binary-style-release-lib.mjs
       manifest.json
       SHA256SUMS
   current -> releases/<version>/
@@ -157,6 +158,45 @@ pnpm --dir packages/database db:migrate
 ```
 
 该步骤是 `pre_switch` 一次性迁移，不常驻，也不承诺数据库自动回滚。M1-P2 只产出迁移运行资产；真正的下载、加锁、迁移执行、`current` 切换、重启、健康检查和回滚闭环留给后续 updater phase。
+
+## Updater runtime script
+
+M1-P5 的后台入口需要在生产 release 目录中定位本地 updater。M1-P2+ 的
+binary-style bundle 因此只携带 updater 运行所需的两个脚本：
+`scripts/local-updater.mjs` 与 `scripts/binary-style-release-lib.mjs`。生产环境推荐显式配置：
+
+```env
+UPDATER_SCRIPT_PATH=/opt/gpt2image/current/scripts/local-updater.mjs
+```
+
+后台 server action、api route 或 UOL 适配层只能把该路径作为 `node` 的独立 argv
+参数调用，不得经 shell 拼接命令。bundle 中的 `scripts/` 目录不包含 `.env`、secrets、
+logs、storage 或 `.gpt2image` 运行态目录；这些内容仍只来自目标机的运行时配置和
+`shared/`。
+
+## MCP guardrails
+
+M1-P5 会把 `update.status`、`update.check` 和 `update.apply` 注册为 UOL
+Admin Operation。MCP Admin 工具工厂只暴露已绑定的 operation，并为
+`update.apply` 标记 `destructiveHint`。生产默认建议不要让外部 MCP agent 直接执行
+本机更新，除非运维已完成单独授权与演练。
+
+推荐生产配置二选一：
+
+```env
+MCP_READ_ONLY=1
+```
+
+或仅封锁 destructive 更新操作：
+
+```env
+MCP_DENIED_OPS=update.apply
+```
+
+如果确需开放 `update.apply`，仍必须保留 `UPDATER_ENABLED` 默认关闭策略、服务端
+`UPDATER_SCRIPT_PATH` / `UPDATER_INSTALL_ROOT` / `UPDATER_ENV_FILE` 固定配置、
+`confirmVersion` 显式确认、`runId` 幂等键和审计日志。数据库 migration 不自动
+rollback，MCP 调用方不得把应用层 rollback 误判为数据库回滚。
 
 ## 安装契约
 
@@ -382,6 +422,43 @@ pnpm typecheck
 git diff --check -- scripts/local-updater.mjs scripts/binary-style-release-lib.mjs package.json docs/deployment/binary-style-deployment.md .workflow/roadmap.md
 ```
 
+## M1-P5 Admin Operation 与后台入口
+
+M1-P5 在 M1-P4 本地 apply/update 闭环之上增加默认关闭的后台管理入口。新增
+UOL Admin Operation 为 `update.status`、`update.check` 和 `update.apply`：
+
+- `update.status`：只读读取安装根当前版本、manifest 摘要和配置状态。
+- `update.check`：只读检查 release manifest，返回 `current_version`、
+  `available_version`、`decision`、`reason` 和 artifact checksum 摘要。
+- `update.apply`：destructive 操作，必须提供 `manifestPath`、`artifactPath`、
+  `runId` 与 `confirmVersion`；`runId` 是全局幂等键，`confirmVersion` 必须与
+  manifest 中的 `available_version` 匹配。
+
+后台状态页 `/dashboard/admin/status` 只对 admin/super_admin 显示更新卡片，不新增
+sidebar 项。observer_admin 仍可查看全局状态页，但不显示 destructive apply 控件。
+传输层保持 thin：server action 只做 `adminAction` 鉴权、`ensureUolInitialized()`、
+Principal 构造和 `invokeOperation()`，真实进程执行由服务端 updater wrapper 统一绑定。
+
+生产环境默认关闭；只有显式配置以下服务端变量后才允许后台触发：
+
+```env
+UPDATER_ENABLED=1
+UPDATER_SCRIPT_PATH=/opt/gpt2image/current/scripts/local-updater.mjs
+UPDATER_INSTALL_ROOT=/opt/gpt2image
+UPDATER_ENV_FILE=/etc/gpt2image/gpt2image.env
+UPDATER_MANIFEST_PATH=/opt/gpt2image/shared/staging/manifest.json
+```
+
+路径类配置只能来自服务端环境变量，请求体不得覆盖 `UPDATER_SCRIPT_PATH`、
+`UPDATER_INSTALL_ROOT` 或 `UPDATER_ENV_FILE`。服务端调用本地 updater 时必须使用
+`spawn`/`execFile` 类无 shell 执行，不能把参数拼成 shell 字符串。stdout、stderr 和
+JSON 字段进入 UI 或日志前必须脱敏。
+
+更新卡片必须提示：DB migration 不自动 rollback。若 migration 已成功而新应用失败，
+`rollback` 只能恢复应用层 `current` 与白名单服务进程；schema/data 处理仍需按备份或
+迁移 runbook 人工执行。
+
+
 ## 后续实现约束
 
 后续 Phase 需要保持以下约束：
@@ -389,4 +466,4 @@ git diff --check -- scripts/local-updater.mjs scripts/binary-style-release-lib.m
 - Phase 2 生成的 artifact 必须能离线列出文件清单，并通过 SHA256 校验。
 - Phase 3 updater dry-run 必须在不影响 `current` 的情况下完成下载、校验、解包和 env 检查。
 - Phase 4 才允许真实切换、重启和自动应用层回滚。
-- Phase 5 后台入口必须在本地 updater 稳定后接入，并受 admin 权限、审计、锁和显式配置保护。
+- Phase 5 后台入口已在本地 updater 稳定后接入，后续扩展仍必须受 admin 权限、审计、锁和显式配置保护。

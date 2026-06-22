@@ -167,7 +167,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 ### binary-style release assets
 
-当前生产新部署仍以 **Docker Compose（推荐）** 为主。`docs/deployment/binary-style-deployment.md` 记录 binary-style 部署契约；M1-P2 起 tag Release 会在 GHCR 镜像与 compose 包之外附加 `gpt2image-pro-<version>-linux-x64.tar.gz`、`gpt2image-pro-<version>-linux-x64.zip`、对应 `.sha256`、`manifest.json` 和 `SHA256SUMS`。这些 assets 用于后续 updater 阶段；M1-P2 不包含 updater CLI，不实现本地切换、重启、回滚、后台 admin operation 或后台 UI。
+当前生产新部署仍以 **Docker Compose（推荐）** 为主。`docs/deployment/binary-style-deployment.md` 记录 binary-style 部署契约；M1-P2 起 tag Release 会在 GHCR 镜像与 compose 包之外附加 `gpt2image-pro-<version>-linux-x64.tar.gz`、`gpt2image-pro-<version>-linux-x64.zip`、对应 `.sha256`、`manifest.json` 和 `SHA256SUMS`。M1-P5 后 binary-style assets 还包含 updater runtime scripts，并提供默认关闭的后台 Admin Operation：`update.status`、`update.check`、`update.apply`。启用后台入口需要显式配置 `UPDATER_ENABLED`、`UPDATER_SCRIPT_PATH`、`UPDATER_INSTALL_ROOT` 和 `UPDATER_ENV_FILE`；外部 MCP 生产建议用 `MCP_DENIED_OPS=update.apply` 或只读模式阻断 destructive apply。
 
 > **环境变量文件对照（别拿错模板）：**
 >
@@ -308,7 +308,7 @@ Web 应用默认启用内置定时任务，会自动执行 pending 超时退款�
 - 构建并推送 `ghcr.io/meowfree/gpt2image-pro-chatgpt-web-proxy`
 - 创建 GitHub Release 草稿，并附带 compose 部署包
 - 附加 binary-style release assets：`gpt2image-pro-<version>-linux-x64.tar.gz`、`gpt2image-pro-<version>-linux-x64.zip`、对应 `.sha256`、`manifest.json`、`SHA256SUMS`
-- binary-style assets 只负责产物发布；updater CLI、后台 UI、Sub2API、Codex 登录、Agent 分支、批量图片工具和 PSD 仍未实现
+- binary-style assets 提供本地 updater runtime scripts 和默认关闭的后台更新入口；Docker Compose 仍是推荐新部署路径，Sub2API、Codex 登录、Agent 分支、批量图片工具和 PSD 仍未实现
 
 ```bash
 git tag -a v0.1.0 -m "v0.1.0"
