@@ -146,9 +146,42 @@
       "harvested": true,
       "created_at": "2026-06-22T15:29:53+08:00",
       "completed_at": "2026-06-22T15:29:53+08:00"
+    },
+    {
+      "id": "PLN-004",
+      "path": ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback",
+      "type": "plan",
+      "title": "M1-P4 迁移、切换、重启与回滚闭环执行计划",
+      "scope": "phase",
+      "milestone": "M1",
+      "phase": "M1-P4",
+      "depends_on": [
+        ".workflow/roadmap.md",
+        ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
+        ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core"
+      ],
+      "plan_file": ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+      "task_count": 7,
+      "check_status": "passed",
+      "created_at": "2026-06-22T20:45:00+08:00"
+    },
+    {
+      "id": "EXC-004",
+      "type": "execute",
+      "milestone": "M1",
+      "phase": "M1-P4",
+      "scope": "phase",
+      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+      "status": "completed",
+      "depends_on": "PLN-004",
+      "results_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/results.csv",
+      "context_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md",
+      "harvested": true,
+      "created_at": "2026-06-22T22:20:00+08:00",
+      "completed_at": "2026-06-22T22:20:00+08:00"
     }
   ],
-  "last_updated": "2026-06-22T15:29:53+08:00",
+  "last_updated": "2026-06-22T22:20:00+08:00",
   "accumulated_context": {
     "key_decisions": [
       "M1-P1 plan registered: binary-style 部署契约先落 docs/templates/schema/verification，不实现 updater 或后台入口。",
@@ -156,7 +189,9 @@
       "M1-P2 plan registered: release bundle 与 CI 产物阶段规划构建脚本、校验脚本、migrator runtime、docker-release assets、文档同步和 artifact smoke；不实现 updater/admin/backlog。",
       "M1-P2 executed: release bundle 构建/校验脚本、migrator runtime 边界、docker-release binary assets、文档同步和 artifact smoke 已完成；updater/admin/backlog 仍未实现。",
       "M1-P3 plan registered: 本地 updater CLI/script core 阶段规划 helper 抽取、CLI skeleton、manifest check、download verify、lock/stage 和 docs/final gates；仍不执行 current 切换、migrator、systemd、rollback 或 admin/UOL。",
-      "M1-P3 executed: 本地 updater CLI/script core 已完成 helper 抽取、check/plan/status/dry-run、manifest 版本决策、download .partial 校验、lock/stage 预检与文档收口；仍不执行 current 切换、migrator、systemd、rollback 或 admin/UOL。"
+      "M1-P3 executed: 本地 updater CLI/script core 已完成 helper 抽取、check/plan/status/dry-run、manifest 版本决策、download .partial 校验、lock/stage 预检与文档收口；仍不执行 current 切换、migrator、systemd、rollback 或 admin/UOL。",
+      "M1-P4 plan registered: updater apply 阶段规划 preflight、candidate migrator、releases/current 原子切换、白名单 systemd restart、healthcheck 与应用层 rollback；Admin/UOL/UI 留到 M1-P5。",
+      "M1-P4 executed: updater apply/update 已完成 preflight、release install、candidate migrator、current 切换、白名单 systemd restart、healthcheck、应用层 rollback、自测、文档和 package 脚本；Admin/UOL/UI 留到 M1-P5。"
     ],
     "blockers": [],
     "deferred": []

@@ -1,22 +1,30 @@
 #!/usr/bin/env node
 /**
  * GPT2Image-Pro 本地 updater CLI 骨架。
- * 使用方：运维手动 dry-run、后续 Admin/UOL 适配层和 CI smoke；本脚本当前仅做只读预检、计划与状态查看。
+ * 使用方：运维手动 dry-run、后续 Admin/UOL 适配层和 CI smoke；本脚本当前覆盖本地 apply 前半段闭环。
  * 关键依赖：Node.js 内置模块、binary-style manifest helper、安装根目录中的 current-version 与 manifest 文件。
  */
 
 import { spawnSync } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { constants as fsConstants, createWriteStream } from "node:fs";
 import {
+  access,
+  appendFile,
+  cp,
   copyFile,
+  lstat,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
+  readlink,
+  realpath,
   rename,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -38,7 +46,16 @@ import {
 } from "./binary-style-release-lib.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const commandNames = new Set(["check", "download", "plan", "stage", "status", "dry-run"]);
+const commandNames = new Set([
+  "apply",
+  "check",
+  "download",
+  "plan",
+  "stage",
+  "status",
+  "dry-run",
+  "update",
+]);
 const supportedArgs = new Set([
   "artifact-file",
   "checksum-file",
@@ -54,7 +71,32 @@ const supportedArgs = new Set([
 ]);
 const projectVersionPattern =
   /^v([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(alpha|beta|rc)\.([0-9]+))?$/;
+const defaultRuntimeEnvFile = "/etc/gpt2image/gpt2image.env";
+const defaultUpdaterLogPath = "/var/log/gpt2image/updater.log";
 const requiredRuntimeEnvNames = ["DATABASE_URL", "BETTER_AUTH_SECRET"];
+const requiredApplyEnvNames = [
+  ...requiredRuntimeEnvNames,
+  "CHATGPT_WEB_PROXY_SECRET",
+];
+export const ALLOWED_SYSTEMD_UNITS = Object.freeze([
+  "gpt2image-web.service",
+  "gpt2image-chatgpt-web-proxy.service",
+]);
+const forbiddenRuntimeScopeTokens = new Set([
+  "admin",
+  "docker",
+  "nginx",
+  "postgres",
+  "postgresql",
+  "uol",
+  "ui",
+]);
+const sensitiveTextNames = [
+  "DATABASE_URL",
+  "BETTER_AUTH_SECRET",
+  "CHATGPT_WEB_PROXY_SECRET",
+];
+const redactedValue = "[REDACTED]";
 const prereleaseRank = new Map([
   ["alpha", 0],
   ["beta", 1],
@@ -128,6 +170,32 @@ function assert(condition, message) {
 }
 
 /**
+ * 遮蔽日志或错误消息中的敏感文本。
+ * @param {unknown} value 待输出内容。
+ * @returns {string} 已脱敏文本。
+ */
+export function redactSensitiveText(value) {
+  let text = String(value);
+  for (const name of sensitiveTextNames) {
+    text = text.replace(
+      new RegExp(`(${name}\\s*=\\s*)([^\\s\\r\\n'"]+)`, "gi"),
+      `$1${redactedValue}`,
+    );
+    text = text.replace(
+      new RegExp(`("${name}"\\s*:\\s*")([^"]*)(")`, "gi"),
+      `$1${redactedValue}$3`,
+    );
+  }
+  return text
+    .replace(/postgres(?:ql)?:\/\/[^\s'",]+/gi, `postgresql://${redactedValue}`)
+    .replace(
+      /(Authorization\s*[:=]\s*)(Bearer\s+)?[^\s'",]+/gi,
+      `$1${redactedValue}`,
+    )
+    .replace(/(Cookie\s*[:=]\s*)[^\r\n"]+/gi, `$1${redactedValue}`);
+}
+
+/**
  * 打印帮助文本。
  * @returns {string} 帮助文本。
  */
@@ -142,20 +210,31 @@ Usage:
   node scripts/local-updater.mjs stage --install-root <dir> --manifest <manifest.json|file://|https://> --artifact-file <file> [--env-file <file>] [--run-id <id>]
   node scripts/local-updater.mjs status --install-root <dir> [--dry-run]
   node scripts/local-updater.mjs dry-run --install-root <dir> --manifest <manifest.json|file://|https://>
+  node scripts/local-updater.mjs apply --install-root <dir> --manifest <manifest.json|file://|https://> --env-file /etc/gpt2image/gpt2image.env [--artifact-file <file>] [--run-id <id>]
+  node scripts/local-updater.mjs update --install-root <dir> --manifest <manifest.json|file://|https://> --env-file /etc/gpt2image/gpt2image.env [--artifact-file <file>] [--run-id <id>]
   node scripts/local-updater.mjs --self-test
   node scripts/local-updater.mjs --self-test cli
   node scripts/local-updater.mjs --self-test check
 
 Commands:
+  apply     Run Phase 4 preflight, install staged bundle, run pre-switch DB migration, switch current, then restart whitelisted services.
   check     Validate a detached manifest without downloading or writing files.
   download  Download or copy an artifact into shared/staging with .partial cleanup and checksum verification.
   plan      Build a read-only update plan for a manifest and install root.
   stage     Extract a verified artifact into shared/staging and run local preflight only.
   status    Read optional current-version and manifest status from install root.
   dry-run   Alias for a full read-only plan; it never switches current or restarts services.
+  update    Alias for apply.
 
-Phase 3 boundary:
-  This skeleton never writes releases/current, never runs migrations, never calls systemd, and never performs healthcheck rollback.`;
+Phase 4 skeleton boundary:
+  apply/update require explicit --install-root, --manifest, and --env-file.
+  The documented env-file default is /etc/gpt2image/gpt2image.env, but pass it explicitly.
+  The skeleton inspects current, releases, shared/staging, and shared/updater.lock.
+  With --artifact-file it writes releases/.installing-<run-id>, verifies, renames to releases/<version>, then runs releases/<version>/migrator.
+  It plans status checks only for gpt2image-web.service and gpt2image-chatgpt-web-proxy.service.
+  It refuses PostgreSQL, Nginx, Docker, Admin, UOL, and UI runtime scopes.
+  DB migration uses pre_switch mode and is not automatically reversible.
+  It only restarts gpt2image-web.service and gpt2image-chatgpt-web-proxy.service, then runs healthcheck rollback if probes fail.`;
 }
 
 /**
@@ -190,6 +269,30 @@ async function readOptionalManifestSummary(filePath) {
     version: typeof manifest.version === "string" ? manifest.version : undefined,
     platform: typeof manifest.platform === "string" ? manifest.platform : undefined,
   };
+}
+
+/**
+ * 读取可选 JSON 摘要，供 shared/updater.lock metadata 等非 manifest 文件使用。
+ * @param {string} filePath JSON 路径。
+ * @returns {Promise<object>} JSON 摘要。
+ */
+async function readOptionalJsonSummary(filePath) {
+  if (!(await pathExists(filePath))) {
+    return { path: filePath, exists: false };
+  }
+  try {
+    return {
+      path: filePath,
+      exists: true,
+      value: await readJson(filePath),
+    };
+  } catch (error) {
+    return {
+      path: filePath,
+      exists: true,
+      error: redactSensitiveText(error instanceof Error ? error.message : String(error)),
+    };
+  }
 }
 
 /**
@@ -496,6 +599,646 @@ async function resolveCurrentVersion(args) {
 }
 
 /**
+ * 读取 apply/update 必需参数，禁止使用只读命令的默认 install root。
+ * @param {Map<string, string | boolean>} args 参数映射。
+ * @returns {{ installRoot: string, manifestSource: string, envFile: string }} 必需参数。
+ */
+function requireApplyRuntimeArgs(args) {
+  const installRootArg = readStringArg(args, "install-root");
+  assert(Boolean(installRootArg), "--install-root is required for apply/update");
+  const manifestSource = readStringArg(args, "manifest");
+  assert(Boolean(manifestSource), "--manifest is required for apply/update");
+  const envFile = readStringArg(args, "env-file");
+  assert(
+    Boolean(envFile),
+    `--env-file is required for apply/update; pass ${defaultRuntimeEnvFile} explicitly`,
+  );
+  return {
+    installRoot: path.resolve(installRootArg),
+    manifestSource,
+    envFile: path.resolve(envFile),
+  };
+}
+
+/**
+ * 获取正式 releases 根目录。
+ * @param {string} installRoot 安装根目录。
+ * @returns {string} releases 目录。
+ */
+function resolveReleasesRoot(installRoot) {
+  return path.join(path.resolve(installRoot), "releases");
+}
+
+/**
+ * 获取 current 指针路径。
+ * @param {string} installRoot 安装根目录。
+ * @returns {string} current 路径。
+ */
+function resolveCurrentPath(installRoot) {
+  return path.join(path.resolve(installRoot), "current");
+}
+
+/**
+ * 读取路径的 lstat，路径不存在时返回 undefined。
+ * @param {string} filePath 文件或目录路径。
+ * @returns {Promise<import("node:fs").Stats | undefined>} 文件状态。
+ */
+async function lstatIfExists(filePath) {
+  try {
+    return await lstat(filePath);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/**
+ * 校验已存在目录没有 symlink 逃逸，并返回真实路径。
+ * @param {string} directoryPath 目录路径。
+ * @param {string} parentPath 允许的父目录。
+ * @param {string} label 错误标签。
+ * @returns {Promise<string>} 真实目录路径。
+ */
+async function resolveExistingDirectoryRealPath(directoryPath, parentPath, label) {
+  const absoluteDirectoryPath = path.resolve(directoryPath);
+  const parentRealPath = await realpath(parentPath);
+  assertInsideInstallRoot(absoluteDirectoryPath, parentRealPath);
+  const directoryStat = await lstat(absoluteDirectoryPath);
+  assert(!directoryStat.isSymbolicLink(), `${label} must not be a symlink`);
+  assert(directoryStat.isDirectory(), `${label} must be a directory`);
+  const directoryRealPath = await realpath(absoluteDirectoryPath);
+  assertInsideInstallRoot(directoryRealPath, parentRealPath);
+  return directoryRealPath;
+}
+
+/**
+ * 校验 current 指针不会指向 releases 根目录外。
+ * @param {string} currentPath current 路径。
+ * @param {string} releasesDir releases 根目录。
+ * @returns {Promise<object>} current 边界摘要。
+ */
+async function assertCurrentPathInsideReleases(currentPath, releasesDir) {
+  const currentStat = await lstatIfExists(currentPath);
+  if (!currentStat) {
+    return { path: currentPath, exists: false };
+  }
+
+  const releasesRealPath = await realpath(releasesDir);
+  if (currentStat.isSymbolicLink()) {
+    const target = await readlink(currentPath);
+    const resolvedTarget = path.resolve(path.dirname(currentPath), target);
+    assertInsideInstallRoot(resolvedTarget, releasesRealPath);
+    if (await pathExists(resolvedTarget)) {
+      const targetRealPath = await realpath(resolvedTarget);
+      assertInsideInstallRoot(targetRealPath, releasesRealPath);
+    }
+    return {
+      path: currentPath,
+      exists: true,
+      type: "symlink",
+      target,
+      resolvedTarget,
+    };
+  }
+
+  assert(currentStat.isDirectory(), "current must be a symlink or directory");
+  const currentRealPath = await realpath(currentPath);
+  assertInsideInstallRoot(currentRealPath, releasesRealPath);
+  return {
+    path: currentPath,
+    exists: true,
+    type: "directory",
+    realPath: currentRealPath,
+  };
+}
+
+/**
+ * 读取 releases/<version> 目标状态，拒绝非空目录与 symlink。
+ * @param {string} releaseDir release 目标目录。
+ * @param {string} releasesDir releases 根目录。
+ * @returns {Promise<{ path: string, exists: boolean, empty: boolean }>} 目标状态。
+ */
+async function readReleaseDestinationState(releaseDir, releasesDir) {
+  const releaseStat = await lstatIfExists(releaseDir);
+  if (!releaseStat) {
+    return { path: releaseDir, exists: false, empty: true };
+  }
+
+  assert(!releaseStat.isSymbolicLink(), "release directory must not be a symlink");
+  assert(releaseStat.isDirectory(), "release path must be a directory");
+  const releaseRealPath = await realpath(releaseDir);
+  const releasesRealPath = await realpath(releasesDir);
+  assertInsideInstallRoot(releaseRealPath, releasesRealPath);
+  const entries = await readdir(releaseDir);
+  assert(
+    entries.length === 0,
+    `release directory already exists and is non-empty: ${releaseDir}`,
+  );
+  return { path: releaseDir, exists: true, empty: true };
+}
+
+/**
+ * 删除可被原子 rename 覆盖的空 release 目标目录。
+ * @param {{ path: string, exists: boolean, empty: boolean }} releaseState 目标状态。
+ * @returns {Promise<void>} 无返回。
+ */
+async function removeEmptyReleaseDestination(releaseState) {
+  if (releaseState.exists && releaseState.empty) {
+    await rm(releaseState.path, { recursive: true, force: true });
+  }
+}
+
+/**
+ * 只清理本次 releases/.installing-<run-id> 临时目录。
+ * @param {string} installingDir 临时目录。
+ * @param {string} releasesDir releases 根目录。
+ * @returns {Promise<void>} 无返回。
+ */
+async function cleanupInstallingRelease(installingDir, releasesDir) {
+  const absoluteInstallingDir = path.resolve(installingDir);
+  const absoluteReleasesDir = path.resolve(releasesDir);
+  assertInsideInstallRoot(absoluteInstallingDir, absoluteReleasesDir);
+  assert(
+    path.dirname(absoluteInstallingDir) === absoluteReleasesDir &&
+      path.basename(absoluteInstallingDir).startsWith(".installing-"),
+    "cleanup path must be releases/.installing-<run-id>",
+  );
+  await rm(absoluteInstallingDir, { recursive: true, force: true });
+}
+
+/**
+ * 校验 stageArtifact 返回的 bundleDir 确实来自 shared/staging/<run-id>/stage。
+ * @param {object} stageResult stageArtifact 返回值。
+ * @param {string} stageDir 预期 stage 目录。
+ * @param {string} stagingRoot staging 根目录。
+ * @returns {Promise<{ bundleDir: string, bundleRealPath: string }>} bundle 路径。
+ */
+async function assertStageArtifactBundleDir(stageResult, stageDir, stagingRoot) {
+  const result = assertObject(stageResult, "stageArtifact result");
+  const bundleDirValue = result.bundleDir;
+  assert(
+    typeof bundleDirValue === "string" && bundleDirValue.length > 0,
+    "stageArtifact result bundleDir is required",
+  );
+  const absoluteBundleDir = path.resolve(bundleDirValue);
+  const stageRealPath = await resolveExistingDirectoryRealPath(
+    stageDir,
+    stagingRoot,
+    "shared/staging/<run-id>/stage",
+  );
+  assertInsideInstallRoot(absoluteBundleDir, stageRealPath);
+  const bundleStat = await lstat(absoluteBundleDir);
+  assert(!bundleStat.isSymbolicLink(), "stageArtifact bundleDir must not be a symlink");
+  assert(bundleStat.isDirectory(), "stageArtifact bundleDir must be a directory");
+  const bundleRealPath = await realpath(absoluteBundleDir);
+  assertInsideInstallRoot(bundleRealPath, stageRealPath);
+  return { bundleDir: absoluteBundleDir, bundleRealPath };
+}
+
+/**
+ * 复验已复制的 release bundle 内容和内置 manifest。
+ * @param {object} input 输入。
+ * @param {string} input.bundleDir bundle 目录。
+ * @param {Record<string, unknown>} input.manifest detached manifest。
+ * @param {string} input.expectedPlatform 期望平台。
+ * @returns {Promise<void>} 无返回。
+ */
+async function verifyReleaseBundle({ bundleDir, manifest, expectedPlatform }) {
+  await verifyRequiredPaths(bundleDir);
+  await verifyDeniedPaths(bundleDir);
+  await verifySha256Sums(bundleDir);
+  const internalManifest = await readJson(path.join(bundleDir, "manifest.json"));
+  verifyManifest(internalManifest, expectedPlatform);
+  // bundle 内 manifest 的 artifact_sha256 可能是构建时占位值，真实 archive hash 以 detached manifest 为准。
+  for (const field of [
+    "version",
+    "commit",
+    "platform",
+    "minimum_supported_version",
+    "migration_mode",
+  ]) {
+    assert(
+      internalManifest[field] === manifest[field],
+      `internal manifest ${field} mismatch`,
+    );
+  }
+}
+
+/**
+ * 解析 release 安装相关路径并做越界防护。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @param {string | undefined} input.runId 执行 ID。
+ * @returns {Promise<object>} release 路径集合。
+ */
+export async function resolveReleasePaths({ installRoot, manifest, runId }) {
+  const absoluteInstallRoot = path.resolve(installRoot);
+  const installRootStat = await lstat(absoluteInstallRoot);
+  assert(
+    installRootStat.isDirectory() || installRootStat.isSymbolicLink(),
+    "installRoot must be a directory",
+  );
+  const installRootRealPath = await realpath(absoluteInstallRoot);
+  await resolveExistingDirectoryRealPath(
+    installRootRealPath,
+    installRootRealPath,
+    "installRoot",
+  );
+
+  const version = readManifestString(manifest, "version");
+  parseProjectVersion(version);
+  const safeRunId = resolveSafeRunId(manifest, runId);
+  const releasesDir = path.resolve(installRootRealPath, "releases");
+  const stagingRoot = path.resolve(installRootRealPath, "shared", "staging");
+  const releasesRealPath = await resolveExistingDirectoryRealPath(
+    releasesDir,
+    installRootRealPath,
+    "releases",
+  );
+  const stagingRealPath = await resolveExistingDirectoryRealPath(
+    stagingRoot,
+    installRootRealPath,
+    "shared/staging",
+  );
+  const releaseDir = path.resolve(releasesRealPath, version);
+  const installingDir = path.resolve(releasesRealPath, `.installing-${safeRunId}`);
+  const currentPath = path.resolve(installRootRealPath, "current");
+  const stageDir = path.resolve(stagingRealPath, safeRunId, "stage");
+  assertInsideInstallRoot(releaseDir, releasesRealPath);
+  assertInsideInstallRoot(installingDir, releasesRealPath);
+  assertInsideInstallRoot(stageDir, stagingRealPath);
+  const current = await assertCurrentPathInsideReleases(currentPath, releasesRealPath);
+  const releaseState = await readReleaseDestinationState(
+    releaseDir,
+    releasesRealPath,
+  );
+
+  return {
+    installRoot: installRootRealPath,
+    version,
+    runId: safeRunId,
+    releasesDir: releasesRealPath,
+    releaseDir,
+    installingDir,
+    currentPath,
+    current,
+    stagingRoot: stagingRealPath,
+    stageDir,
+    releaseState,
+  };
+}
+
+/**
+ * 安装已验证 staged bundle 到 releases/<version>。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {Record<string, unknown>} input.manifest detached manifest。
+ * @param {string | undefined} input.runId 执行 ID。
+ * @param {object} input.stageResult stageArtifact 返回值。
+ * @param {string | undefined} input.expectedPlatform 期望平台。
+ * @returns {Promise<object>} 安装摘要。
+ */
+export async function installStagedRelease({
+  installRoot,
+  manifest,
+  runId,
+  stageResult,
+  expectedPlatform = supportedPlatform,
+}) {
+  const releasePaths = await resolveReleasePaths({ installRoot, manifest, runId });
+  const staged = await assertStageArtifactBundleDir(
+    stageResult,
+    releasePaths.stageDir,
+    releasePaths.stagingRoot,
+  );
+
+  try {
+    await cleanupInstallingRelease(
+      releasePaths.installingDir,
+      releasePaths.releasesDir,
+    );
+    await cp(staged.bundleRealPath, releasePaths.installingDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+      preserveTimestamps: true,
+    });
+    await resolveExistingDirectoryRealPath(
+      releasePaths.installingDir,
+      releasePaths.releasesDir,
+      "releases/.installing-<run-id>",
+    );
+    await verifyReleaseBundle({
+      bundleDir: releasePaths.installingDir,
+      manifest,
+      expectedPlatform,
+    });
+    await removeEmptyReleaseDestination(releasePaths.releaseState);
+    await rename(releasePaths.installingDir, releasePaths.releaseDir);
+    await resolveExistingDirectoryRealPath(
+      releasePaths.releaseDir,
+      releasePaths.releasesDir,
+      "releases/<version>",
+    );
+    return {
+      installed: true,
+      version: releasePaths.version,
+      runId: releasePaths.runId,
+      sourceBundleDir: staged.bundleDir,
+      stagingDir: releasePaths.stageDir,
+      releaseDir: releasePaths.releaseDir,
+      temporaryDir: releasePaths.installingDir,
+      currentPath: releasePaths.currentPath,
+      preservedPaths: [
+        "current",
+        "releases",
+        "shared/staging",
+        "shared/updater.lock",
+      ],
+      safety: {
+        cleanupOnFailure: "releases/.installing-<run-id>",
+        switchesCurrent: false,
+        callsSystemctl: false,
+      },
+    };
+  } catch (error) {
+    await cleanupInstallingRelease(
+      releasePaths.installingDir,
+      releasePaths.releasesDir,
+    );
+    throw error;
+  }
+}
+
+/**
+ * 判断 systemd scope 名称是否包含禁入边界。
+ * @param {string} value scope 名称。
+ * @returns {boolean} 是否禁入。
+ */
+function hasForbiddenRuntimeScope(value) {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .some((token) => forbiddenRuntimeScopeTokens.has(token));
+}
+
+/**
+ * 读取 manifest 中的 systemd 单元列表。
+ * @param {Record<string, unknown>} manifest manifest。
+ * @returns {Array<{ name: string, unit: string }>} service 与 unit。
+ */
+function readSystemdUnitsFromManifest(manifest) {
+  const services = assertObject(manifest.services, "manifest.services");
+  return Object.entries(services).map(([name, value]) => {
+    const service = assertObject(value, `manifest.services.${name}`);
+    const unit = service.systemd_unit;
+    assert(
+      typeof unit === "string" && unit.length > 0,
+      `manifest service ${name} must declare systemd_unit`,
+    );
+    return { name, unit };
+  });
+}
+
+/**
+ * 校验 apply/update 只允许 GPT2Image-Pro web 与 proxy 服务。
+ * @param {Record<string, unknown>} manifest manifest。
+ * @returns {Array<{ name: string, unit: string }>} 已排序允许单元。
+ */
+export function assertAllowedSystemdUnits(manifest) {
+  const allowed = new Set(ALLOWED_SYSTEMD_UNITS);
+  const units = readSystemdUnitsFromManifest(manifest);
+  const uniqueUnits = new Set(units.map((service) => service.unit));
+  assert(
+    units.length === ALLOWED_SYSTEMD_UNITS.length &&
+      uniqueUnits.size === ALLOWED_SYSTEMD_UNITS.length,
+    "manifest services must only include gpt2image-web.service and gpt2image-chatgpt-web-proxy.service",
+  );
+  for (const { name, unit } of units) {
+    assert(!hasForbiddenRuntimeScope(name), `forbidden runtime scope rejected: ${name}`);
+    assert(!hasForbiddenRuntimeScope(unit), `forbidden systemd unit rejected: ${unit}`);
+    assert(allowed.has(unit), `systemd unit is not allowed: ${unit}`);
+  }
+  return units.sort((left, right) => {
+    return ALLOWED_SYSTEMD_UNITS.indexOf(left.unit) - ALLOWED_SYSTEMD_UNITS.indexOf(right.unit);
+  });
+}
+
+/**
+ * 读取 current 指针摘要，不返回 env 或 secrets。
+ * @param {string} installRoot 安装根目录。
+ * @returns {Promise<object>} current 摘要。
+ */
+async function readCurrentSummary(installRoot) {
+  const currentPath = resolveCurrentPath(installRoot);
+  if (!(await pathExists(currentPath))) {
+    return { path: currentPath, exists: false };
+  }
+
+  const currentStat = await lstat(currentPath);
+  const summary = {
+    path: currentPath,
+    exists: true,
+    type: currentStat.isSymbolicLink()
+      ? "symlink"
+      : currentStat.isDirectory()
+        ? "directory"
+        : "other",
+    manifest: await readOptionalManifestSummary(path.join(currentPath, "manifest.json")),
+  };
+  if (currentStat.isSymbolicLink()) {
+    const target = await readlink(currentPath);
+    const resolvedTarget = path.resolve(path.dirname(currentPath), target);
+    summary.target = target;
+    summary.resolvedTarget = resolvedTarget;
+    summary.targetInsideReleases = true;
+    try {
+      assertInsideInstallRoot(resolvedTarget, resolveReleasesRoot(installRoot));
+    } catch {
+      summary.targetInsideReleases = false;
+    }
+  }
+  return summary;
+}
+
+/**
+ * 读取目录存在性摘要。
+ * @param {string} directoryPath 目录路径。
+ * @returns {Promise<{ path: string, exists: boolean, entries?: string[] }>} 目录摘要。
+ */
+async function readDirectorySummary(directoryPath) {
+  if (!(await pathExists(directoryPath))) {
+    return { path: directoryPath, exists: false };
+  }
+  const entries = await readdir(directoryPath);
+  return {
+    path: directoryPath,
+    exists: true,
+    entries: entries.slice(0, 20),
+  };
+}
+
+/**
+ * 读取目录可写性摘要，不创建或删除文件。
+ * @param {string} directoryPath 目录路径。
+ * @returns {Promise<{ path: string, exists: boolean, writable: boolean, error?: string }>} 可写性摘要。
+ */
+async function readWritableDirectorySummary(directoryPath) {
+  if (!(await pathExists(directoryPath))) {
+    return { path: directoryPath, exists: false, writable: false };
+  }
+  try {
+    await access(directoryPath, fsConstants.W_OK);
+    return { path: directoryPath, exists: true, writable: true };
+  } catch (error) {
+    return {
+      path: directoryPath,
+      exists: true,
+      writable: false,
+      error: redactSensitiveText(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+/**
+ * 读取 updater lock 占用状态。
+ * @param {string} installRoot 安装根目录。
+ * @returns {Promise<{ path: string, occupied: boolean }>} lock 状态。
+ */
+async function readUpdateLockSummary(installRoot) {
+  const lockPath = resolveLockPath(installRoot);
+  const occupied = await pathExists(lockPath);
+  let metadata = null;
+  if (occupied) {
+    metadata = await readOptionalJsonSummary(path.join(lockPath, "metadata.json"));
+  }
+  return {
+    path: lockPath,
+    occupied,
+    metadata,
+    staleLockHint: occupied
+      ? "stale lock must be inspected manually; do not auto-delete shared/updater.lock"
+      : null,
+  };
+}
+
+/**
+ * 构造磁盘空间检查命令边界，只描述不执行。
+ * @param {string} installRoot 安装根目录。
+ * @returns {object} 命令边界。
+ */
+function buildDiskSpaceCommandBoundary(installRoot) {
+  return {
+    command: "df",
+    args: ["-Pk", installRoot],
+    executed: false,
+    purpose: "check free space before writing releases/<version>",
+  };
+}
+
+/**
+ * 构造 systemd status 查询计划，只描述允许单元不调用 systemctl。
+ * @param {Array<{ name: string, unit: string }>} units 允许单元。
+ * @returns {object[]} 查询计划。
+ */
+function buildServiceStatusPlan(units) {
+  return units.map(({ name, unit }) => ({
+    service: name,
+    unit,
+    command: "systemctl",
+    args: ["is-active", "--quiet", unit],
+    executed: false,
+  }));
+}
+
+/**
+ * 构造数据库连接检查命令边界，只验证 env 文件与命令形状。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {string} input.envFile env 文件。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @returns {object} 命令边界。
+ */
+function buildDatabaseConnectivityCommandBoundary({ installRoot, envFile, manifest }) {
+  const version = readManifestString(manifest, "version");
+  return {
+    command: "node",
+    args: [
+      path.join(resolveReleasesRoot(installRoot), version, "scripts", "database-connectivity-check.mjs"),
+    ],
+    envFile,
+    executed: false,
+    sensitiveInputsRedacted: true,
+    purpose: "verify DATABASE_URL connectivity before migration",
+  };
+}
+
+/**
+ * 执行 apply/update 的只预检运行态模型，不安装、不切换、不重启。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @param {string} input.envFile env 文件。
+ * @returns {Promise<object>} 预检摘要。
+ */
+export async function preflightApplyRuntime({ installRoot, manifest, envFile }) {
+  const absoluteInstallRoot = path.resolve(installRoot);
+  const absoluteEnvFile = path.resolve(envFile);
+  const releasesDir = resolveReleasesRoot(absoluteInstallRoot);
+  const stagingRoot = resolveStagingRoot(absoluteInstallRoot);
+  const current = await readCurrentSummary(absoluteInstallRoot);
+  const releases = await readDirectorySummary(releasesDir);
+  const staging = await readWritableDirectorySummary(stagingRoot);
+  const lock = await readUpdateLockSummary(absoluteInstallRoot);
+  const allowedUnits = assertAllowedSystemdUnits(manifest);
+  const env = await preflightRuntimeEnv({
+    envFile: absoluteEnvFile,
+    requiredNames: requiredApplyEnvNames,
+  });
+
+  assert(releases.exists, `releases directory not found: ${releasesDir}`);
+  assert(staging.exists, `shared/staging directory not found: ${stagingRoot}`);
+  assert(staging.writable, `shared/staging is not writable: ${stagingRoot}`);
+  assert(!lock.occupied, `shared/updater.lock is occupied: ${lock.path}`);
+
+  return {
+    installRoot: absoluteInstallRoot,
+    paths: {
+      current,
+      releases,
+      staging,
+      lock,
+    },
+    env,
+    safety: {
+      allowedSystemdUnits: ALLOWED_SYSTEMD_UNITS,
+      forbiddenScopes: ["PostgreSQL", "Nginx", "Docker", "Admin", "UOL", "UI"],
+      writesReleasesVersion: false,
+      switchesCurrent: false,
+      callsSystemctl: false,
+    },
+    commandBoundaries: {
+      diskSpace: buildDiskSpaceCommandBoundary(absoluteInstallRoot),
+      databaseConnectivity: buildDatabaseConnectivityCommandBoundary({
+        installRoot: absoluteInstallRoot,
+        envFile: absoluteEnvFile,
+        manifest,
+      }),
+      serviceStatus: buildServiceStatusPlan(allowedUnits),
+    },
+  };
+}
+
+/**
  * 构造 check/plan 共用的白名单摘要。
  * @param {Record<string, unknown>} manifest manifest。
  * @param {string | undefined} currentVersion 当前版本。
@@ -643,10 +1386,7 @@ export function validateArtifactFileName(fileName, manifest) {
  */
 export function resolveDownloadTarget({ installRoot, manifest, runId }) {
   const absoluteInstallRoot = path.resolve(installRoot);
-  const version = readManifestString(manifest, "version");
-  const safeRunId = runId ?? version;
-  assert(!safeRunId.includes(".."), "run-id must not contain path traversal");
-  assert(!path.isAbsolute(safeRunId), "run-id must be relative");
+  const safeRunId = resolveSafeRunId(manifest, runId);
   const stagingRoot = path.join(absoluteInstallRoot, "shared", "staging");
   const downloadsDir = path.join(stagingRoot, safeRunId, "downloads");
   const artifactPath = path.join(downloadsDir, readArtifactFileName(manifest));
@@ -825,9 +1565,18 @@ function resolveLockPath(installRoot) {
 function resolveSafeRunId(manifest, runId) {
   const version = readManifestString(manifest, "version");
   const safeRunId = runId ?? version;
+  assert(safeRunId.length > 0, "run-id must not be empty");
   assert(!safeRunId.includes(".."), "run-id must not contain path traversal");
   assert(!path.isAbsolute(safeRunId), "run-id must be relative");
-  assert(!/^[a-zA-Z]:[\/]/.test(safeRunId), "run-id must not be a drive path");
+  assert(!/^[a-zA-Z]:[\\/]/.test(safeRunId), "run-id must not be a drive path");
+  assert(
+    !safeRunId.includes("/") && !safeRunId.includes("\\"),
+    "run-id must be a single path segment",
+  );
+  assert(
+    /^[A-Za-z0-9._-]+$/.test(safeRunId),
+    "run-id must contain only letters, digits, dot, underscore, or dash",
+  );
   return safeRunId;
 }
 
@@ -981,7 +1730,7 @@ function parseEnvVariableNames(text) {
  * @returns {Promise<object>} 预检摘要。
  */
 export async function preflightRuntimeEnv({
-  envFile = "/etc/gpt2image/gpt2image.env",
+  envFile = defaultRuntimeEnvFile,
   requiredNames = requiredRuntimeEnvNames,
 }) {
   const absoluteEnvFile = path.resolve(envFile);
@@ -1057,13 +1806,1000 @@ async function runStage(args) {
 }
 
 /**
+ * 解析 EnvironmentFile 中的值，供真实迁移子进程使用；返回值只能进入子进程 env，不能直接写日志。
+ * @param {string} rawValue 原始值。
+ * @returns {string} 解析后的值。
+ */
+function parseRuntimeEnvValue(rawValue) {
+  const value = rawValue.trim();
+  if (
+    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+/**
+ * 读取运行态 env 文件值并校验必需变量；调用方必须避免把 values 写入日志。
+ * @param {string} envFile env 文件路径。
+ * @param {string[]} requiredNames 必需变量名。
+ * @returns {Promise<{ envFile: string, values: Record<string, string> }>} env 值。
+ */
+async function readRuntimeEnvValues(envFile, requiredNames) {
+  const absoluteEnvFile = path.resolve(envFile);
+  assert(await pathExists(absoluteEnvFile), `env-file not found: ${absoluteEnvFile}`);
+  const values = {};
+  const text = await readFile(absoluteEnvFile, "utf8");
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    const assignment = trimmed.startsWith("export ")
+      ? trimmed.slice("export ".length).trim()
+      : trimmed;
+    const separatorIndex = assignment.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const name = assignment.slice(0, separatorIndex).trim();
+    if (/^[A-Z_][A-Z0-9_]*$/.test(name)) {
+      values[name] = parseRuntimeEnvValue(assignment.slice(separatorIndex + 1));
+    }
+  }
+
+  const missingNames = requiredNames.filter((name) => !Object.hasOwn(values, name));
+  assert(
+    missingNames.length === 0,
+    `env-file missing required names: ${missingNames.join(", ")}`,
+  );
+  return { envFile: absoluteEnvFile, values };
+}
+
+/**
+ * 默认迁移命令 runner；不经 shell，避免命令注入并便于 self-test 注入替身。
+ * @param {string} command 命令。
+ * @param {string[]} args 参数。
+ * @param {{ cwd: string, env: Record<string, string | undefined> }} options 运行选项。
+ * @returns {{ status: number | null, signal: string | null, stdout: string, stderr: string, error?: Error }} 结果。
+ */
+function defaultMigrationRunner(command, args, options) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd,
+    env: options.env,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return {
+    status: result.status,
+    signal: result.signal,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: result.error,
+  };
+}
+
+/**
+ * 将命令结果脱敏成可落盘结构。
+ * @param {object} result runner 原始结果。
+ * @returns {object} 脱敏结果。
+ */
+function sanitizeMigrationResult(result) {
+  const status = typeof result.status === "number" ? result.status : null;
+  const signal = typeof result.signal === "string" ? result.signal : null;
+  const error =
+    result.error instanceof Error
+      ? result.error.message
+      : result.error
+        ? String(result.error)
+        : null;
+  return {
+    exitCode: status,
+    signal,
+    stdout: redactSensitiveText(result.stdout ?? ""),
+    stderr: redactSensitiveText(result.stderr ?? ""),
+    error: error ? redactSensitiveText(error) : null,
+  };
+}
+
+/**
+ * 追加 updater 结构化日志；日志写入前再次统一脱敏。
+ * @param {string} logPath 日志路径。
+ * @param {Record<string, unknown>} entry 日志条目。
+ * @returns {Promise<void>} 无返回。
+ */
+async function appendUpdaterLog(logPath, entry) {
+  await mkdir(path.dirname(logPath), { recursive: true });
+  await appendFile(
+    logPath,
+    `${redactSensitiveText(JSON.stringify(entry, null, 0))}\n`,
+  );
+}
+
+/**
+ * 写入 apply 进度文件。
+ * @param {string} applyJsonPath shared/staging/<run-id>/apply.json。
+ * @param {Record<string, unknown>} data 进度数据。
+ * @returns {Promise<void>} 无返回。
+ */
+async function writeApplyProgress(applyJsonPath, data) {
+  await mkdir(path.dirname(applyJsonPath), { recursive: true });
+  await writeFile(
+    applyJsonPath,
+    `${redactSensitiveText(JSON.stringify(data, null, 2))}\n`,
+  );
+}
+
+/**
+ * 解析已安装 candidate release 的 migrator 路径，确保它来自 releases/<version>/migrator 且未通过 current 指针运行。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @returns {Promise<object>} candidate 路径摘要。
+ */
+async function resolveCandidateMigrationPaths({ installRoot, manifest }) {
+  const absoluteInstallRoot = path.resolve(installRoot);
+  const installRootStat = await lstat(absoluteInstallRoot);
+  assert(
+    installRootStat.isDirectory() || installRootStat.isSymbolicLink(),
+    "installRoot must be a directory",
+  );
+  const installRootRealPath = await realpath(absoluteInstallRoot);
+  const releasesDir = await resolveExistingDirectoryRealPath(
+    path.join(installRootRealPath, "releases"),
+    installRootRealPath,
+    "releases",
+  );
+  const stagingRoot = await resolveExistingDirectoryRealPath(
+    path.join(installRootRealPath, "shared", "staging"),
+    installRootRealPath,
+    "shared/staging",
+  );
+  const version = readManifestString(manifest, "version");
+  parseProjectVersion(version);
+  const releaseDir = await resolveExistingDirectoryRealPath(
+    path.join(releasesDir, version),
+    releasesDir,
+    "releases/<version>",
+  );
+  const migratorDir = await resolveExistingDirectoryRealPath(
+    path.join(releaseDir, "migrator"),
+    releaseDir,
+    "releases/<version>/migrator",
+  );
+  const currentPath = path.join(installRootRealPath, "current");
+  const currentStat = await lstatIfExists(currentPath);
+  if (currentStat) {
+    const currentRealPath = await realpath(currentPath);
+    assert(
+      currentRealPath !== releaseDir,
+      "DB migration must run before current is switched to candidate release",
+    );
+  }
+  return {
+    installRoot: installRootRealPath,
+    releasesDir,
+    stagingRoot,
+    releaseDir,
+    migratorDir,
+    currentPath,
+    version,
+  };
+}
+
+/**
+ * 构造 candidate migrator 命令列表，cwd 固定为 releases/<version>/migrator。
+ * @param {string} migratorDir migrator cwd。
+ * @returns {Array<{ name: string, command: string, args: string[], cwd: string, purpose: string }>} 命令。
+ */
+function buildCandidateMigrationCommands(migratorDir) {
+  return [
+    {
+      name: "corepack-enable",
+      command: "corepack",
+      args: ["enable"],
+      cwd: migratorDir,
+      purpose: "prepare pnpm from candidate releases/<version>/migrator",
+    },
+    {
+      name: "database-migrate",
+      command: "pnpm",
+      args: ["--dir", "packages/database", "db:migrate"],
+      cwd: migratorDir,
+      purpose:
+        "run pnpm --dir packages/database db:migrate from releases/<version>/migrator before current switch",
+    },
+  ];
+}
+
+/**
+ * 执行 candidate release 的 pre_switch 数据库迁移；失败时抛错，调用方不得切 current 或重启服务。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @param {string | undefined} input.runId 执行 ID。
+ * @param {string} input.envFile env 文件。
+ * @param {object | null | undefined} input.previousCurrent 切换前 current 摘要。
+ * @param {Function | undefined} input.runner 可注入命令 runner。
+ * @param {string | undefined} input.logPath updater 日志路径。
+ * @returns {Promise<object>} 迁移摘要。
+ */
+export async function runCandidateMigration({
+  installRoot,
+  manifest,
+  runId,
+  envFile,
+  previousCurrent = null,
+  runner = defaultMigrationRunner,
+  logPath = defaultUpdaterLogPath,
+}) {
+  assert(
+    manifest.migration_mode === "pre_switch",
+    "DB migration must use pre_switch mode before current switch",
+  );
+  const paths = await resolveCandidateMigrationPaths({ installRoot, manifest });
+  const safeRunId = resolveSafeRunId(manifest, runId);
+  const applyJsonPath = path.join(paths.stagingRoot, safeRunId, "apply.json");
+  assertInsideInstallRoot(applyJsonPath, paths.stagingRoot);
+  const env = await readRuntimeEnvValues(envFile, requiredApplyEnvNames);
+  const startedAt = new Date().toISOString();
+  const commands = buildCandidateMigrationCommands(paths.migratorDir);
+  const commandResults = [];
+  const baseProgress = {
+    phase: "M1-P4 candidate DB migration",
+    migration_mode: "pre_switch",
+    migration_started_at: startedAt,
+    migration_finished_at: null,
+    migration_status: "running",
+    candidate_release: paths.releaseDir,
+    candidate_migrator: paths.migratorDir,
+    current_path: paths.currentPath,
+    previous_current: previousCurrent,
+    apply_json: applyJsonPath,
+    db_migration_irreversible: true,
+    env_file: env.envFile,
+    sensitive_inputs_redacted: true,
+    services_not_restarted: ALLOWED_SYSTEMD_UNITS,
+    safety: {
+      switchesCurrentBeforeMigration: false,
+      restartsSystemdBeforeMigration: false,
+      touchesPostgreSQLNginxDockerAdminUolUi: false,
+      rollbackScopeAfterMigration:
+        "应用层仅恢复 current 和 gpt2image-web.service/gpt2image-chatgpt-web-proxy.service，数据库迁移不可自动回滚",
+    },
+  };
+
+  await writeApplyProgress(applyJsonPath, {
+    ...baseProgress,
+    commands: commands.map(({ name, command, args, cwd, purpose }) => ({
+      name,
+      command,
+      args,
+      cwd,
+      purpose,
+      executed: false,
+    })),
+  });
+  await appendUpdaterLog(logPath, {
+    at: startedAt,
+    event: "migration_started",
+    status: "running",
+    candidate_release: paths.releaseDir,
+    candidate_migrator: paths.migratorDir,
+    apply_json: applyJsonPath,
+    db_migration_irreversible: true,
+  });
+
+  try {
+    for (const spec of commands) {
+      const rawResult = await runner(spec.command, spec.args, {
+        cwd: spec.cwd,
+        env: { ...process.env, ...env.values },
+      });
+      const result = sanitizeMigrationResult(rawResult);
+      const record = {
+        ...spec,
+        executed: true,
+        ...result,
+      };
+      commandResults.push(record);
+      await appendUpdaterLog(logPath, {
+        at: new Date().toISOString(),
+        event: "migration_command_finished",
+        command: spec.command,
+        args: spec.args,
+        cwd: spec.cwd,
+        result,
+      });
+      assert(
+        result.exitCode === 0 && !result.error,
+        `DB migration command failed before current switch: ${spec.command} ${spec.args.join(" ")}`,
+      );
+    }
+
+    const finishedAt = new Date().toISOString();
+    const progress = {
+      ...baseProgress,
+      migration_finished_at: finishedAt,
+      migration_status: "completed",
+      commands: commandResults,
+    };
+    await writeApplyProgress(applyJsonPath, progress);
+    await appendUpdaterLog(logPath, {
+      at: finishedAt,
+      event: "migration_finished",
+      status: "completed",
+      candidate_release: paths.releaseDir,
+      apply_json: applyJsonPath,
+      db_migration_irreversible: true,
+    });
+    return progress;
+  } catch (error) {
+    const finishedAt = new Date().toISOString();
+    const migrationError = redactSensitiveText(
+      error instanceof Error ? error.message : String(error),
+    );
+    const progress = {
+      ...baseProgress,
+      migration_finished_at: finishedAt,
+      migration_status: "failed",
+      migration_error: migrationError,
+      commands: commandResults,
+    };
+    await writeApplyProgress(applyJsonPath, progress);
+    await appendUpdaterLog(logPath, {
+      at: finishedAt,
+      event: "migration_failed",
+      status: "failed",
+      candidate_release: paths.releaseDir,
+      apply_json: applyJsonPath,
+      db_migration_irreversible: true,
+      error: migrationError,
+    });
+    throw new Error(migrationError);
+  }
+}
+
+/**
+ * 捕获 current 切换前的上一版指针，并验证上一版位于 releases 内。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @returns {Promise<object>} previous current 摘要。
+ */
+export async function capturePreviousCurrent({ installRoot }) {
+  const absoluteInstallRoot = path.resolve(installRoot);
+  const installRootRealPath = await realpath(absoluteInstallRoot);
+  const releasesDir = await resolveExistingDirectoryRealPath(
+    path.join(installRootRealPath, "releases"),
+    installRootRealPath,
+    "releases",
+  );
+  const currentPath = path.join(installRootRealPath, "current");
+  const currentStat = await lstatIfExists(currentPath);
+  if (!currentStat) {
+    return {
+      exists: false,
+      currentPath,
+      releaseDir: null,
+      manifest: null,
+    };
+  }
+
+  if (currentStat.isSymbolicLink()) {
+    const target = await readlink(currentPath);
+    const resolvedTarget = path.resolve(path.dirname(currentPath), target);
+    assertInsideInstallRoot(resolvedTarget, releasesDir);
+    const releaseDir = await realpath(resolvedTarget);
+    assertInsideInstallRoot(releaseDir, releasesDir);
+    return {
+      exists: true,
+      type: "symlink",
+      currentPath,
+      target,
+      resolvedTarget,
+      releaseDir,
+      manifest: await readOptionalManifestSummary(path.join(releaseDir, "manifest.json")),
+    };
+  }
+
+  assert(currentStat.isDirectory(), "current must be a symlink or directory");
+  const releaseDir = await realpath(currentPath);
+  assertInsideInstallRoot(releaseDir, releasesDir);
+  return {
+    exists: true,
+    type: "directory",
+    currentPath,
+    releaseDir,
+    manifest: await readOptionalManifestSummary(path.join(releaseDir, "manifest.json")),
+  };
+}
+
+/**
+ * 替换 current 指针；Linux 生产路径使用 rename 原子替换，Windows 仅允许本地 symlink fixture fallback。
+ * @param {string} temporaryCurrentPath current.next 路径。
+ * @param {string} currentPath current 路径。
+ * @returns {Promise<object>} 替换方式摘要。
+ */
+async function renameCurrentPointer(temporaryCurrentPath, currentPath) {
+  try {
+    await rename(temporaryCurrentPath, currentPath);
+    return { method: "rename", atomic: true };
+  } catch (error) {
+    if (process.platform !== "win32") {
+      throw error;
+    }
+    const currentStat = await lstatIfExists(currentPath);
+    assert(
+      currentStat?.isSymbolicLink(),
+      "Windows fallback only replaces current symlink fixtures",
+    );
+    await rm(currentPath, { recursive: true, force: true });
+    await rename(temporaryCurrentPath, currentPath);
+    return { method: "windows-symlink-fallback", atomic: false };
+  }
+}
+
+/**
+ * 将 current 指针替换到指定 release，目标必须位于 releases 内。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {string} input.targetReleaseDir 目标 release。
+ * @returns {Promise<object>} 指针替换摘要。
+ */
+async function pointCurrentToRelease({ installRoot, targetReleaseDir }) {
+  const installRootRealPath = await realpath(path.resolve(installRoot));
+  const releasesDir = await resolveExistingDirectoryRealPath(
+    path.join(installRootRealPath, "releases"),
+    installRootRealPath,
+    "releases",
+  );
+  const releaseDir = await resolveExistingDirectoryRealPath(
+    targetReleaseDir,
+    releasesDir,
+    "releases/<version>",
+  );
+  const currentPath = path.join(installRootRealPath, "current");
+  const currentNextPath = `${currentPath}.next`;
+  assertInsideInstallRoot(currentNextPath, installRootRealPath);
+  await rm(currentNextPath, { recursive: true, force: true });
+  const linkTarget =
+    process.platform === "win32"
+      ? releaseDir
+      : path.relative(path.dirname(currentPath), releaseDir);
+  await symlink(
+    linkTarget,
+    currentNextPath,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  await assertCurrentPathInsideReleases(currentNextPath, releasesDir);
+  const renameResult = await renameCurrentPointer(currentNextPath, currentPath);
+  const current = await assertCurrentPathInsideReleases(currentPath, releasesDir);
+  const currentRealPath = await realpath(currentPath);
+  assert(currentRealPath === releaseDir, "current symlink target mismatch");
+  return {
+    current,
+    current_path: currentPath,
+    current_target: releaseDir,
+    switched_at: new Date().toISOString(),
+    temp_path: currentNextPath,
+    rename: renameResult,
+  };
+}
+
+/**
+ * 原子切换 current symlink 到候选 release。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @param {object} input.previousCurrent 切换前 current 摘要。
+ * @returns {Promise<object>} 切换摘要。
+ */
+export async function switchCurrentSymlink({ installRoot, manifest, previousCurrent }) {
+  const paths = await resolveCandidateMigrationPaths({ installRoot, manifest });
+  const switched = await pointCurrentToRelease({
+    installRoot: paths.installRoot,
+    targetReleaseDir: paths.releaseDir,
+  });
+  return {
+    ...switched,
+    previous_current: previousCurrent,
+  };
+}
+
+/**
+ * 默认 systemctl runner；不经 shell，只允许调用方传入白名单 unit。
+ * @param {string} command 命令。
+ * @param {string[]} args 参数。
+ * @returns {{ status: number | null, signal: string | null, stdout: string, stderr: string, error?: Error }} 结果。
+ */
+function defaultSystemctlRunner(command, args) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return {
+    status: result.status,
+    signal: result.signal,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: result.error,
+  };
+}
+
+/**
+ * 只重启 manifest 中的 GPT2Image-Pro 白名单 systemd 单元。
+ * @param {object} input 输入。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @param {Function | undefined} input.runner 可注入 systemctl runner。
+ * @param {string | undefined} input.logPath updater 日志路径。
+ * @returns {Promise<object>} 重启摘要。
+ */
+export async function restartWhitelistedServices({
+  manifest,
+  runner = defaultSystemctlRunner,
+  logPath = defaultUpdaterLogPath,
+}) {
+  const units = assertAllowedSystemdUnits(manifest);
+  const restartedUnits = [];
+  for (const { name, unit } of units) {
+    assert(ALLOWED_SYSTEMD_UNITS.includes(unit), `systemd unit is not allowed: ${unit}`);
+    const args = ["restart", unit];
+    const rawResult = await runner("systemctl", args);
+    const result = sanitizeMigrationResult(rawResult);
+    const record = {
+      service: name,
+      unit,
+      command: "systemctl",
+      args,
+      result,
+      restarted_at: new Date().toISOString(),
+    };
+    restartedUnits.push(record);
+    await appendUpdaterLog(logPath, {
+      at: record.restarted_at,
+      event: "systemd_restart_finished",
+      service: name,
+      unit,
+      command: "systemctl",
+      args,
+      result,
+    });
+    assert(
+      result.exitCode === 0 && !result.error,
+      `systemctl restart failed for whitelisted unit: ${unit}`,
+    );
+  }
+  return {
+    allowedSystemdUnits: ALLOWED_SYSTEMD_UNITS,
+    restarted_units: restartedUnits,
+    forbiddenUnits: ["postgresql.service", "nginx.service", "docker.service"],
+  };
+}
+
+/**
+ * 合并写入 apply journal，用于 current 切换、restart、healthcheck 和 rollback。
+ * @param {string} applyJsonPath apply.json 路径。
+ * @param {Record<string, unknown>} patch 追加字段。
+ * @returns {Promise<object>} 合并后的 journal。
+ */
+export async function writeApplyJournal(applyJsonPath, patch) {
+  const current = (await pathExists(applyJsonPath)) ? await readJson(applyJsonPath) : {};
+  const next = { ...current, ...patch };
+  await writeApplyProgress(applyJsonPath, next);
+  return next;
+}
+
+/**
+ * 等待指定毫秒。
+ * @param {number} milliseconds 毫秒。
+ * @returns {Promise<void>} 无返回。
+ */
+function sleep(milliseconds) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+/**
+ * 读取 healthcheck 数值字段。
+ * @param {Record<string, unknown>} value 配置。
+ * @param {string} field 字段名。
+ * @param {number} fallback 默认值。
+ * @returns {number} 数值。
+ */
+function readHealthcheckNumber(value, field, fallback) {
+  const raw = value[field];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
+}
+
+/**
+ * 从 manifest 构造 Web 与 proxy 健康检查探针。
+ * @param {Record<string, unknown>} manifest manifest。
+ * @returns {object[]} 探针列表。
+ */
+function buildHealthcheckProbes(manifest) {
+  const healthcheck = assertObject(manifest.healthcheck, "manifest.healthcheck");
+  const web = assertObject(healthcheck.web, "manifest.healthcheck.web");
+  const proxy = assertObject(
+    healthcheck["chatgpt-web-proxy"],
+    "manifest.healthcheck.chatgpt-web-proxy",
+  );
+  const webHost = typeof web.host === "string" ? web.host : "127.0.0.1";
+  const webPort = readHealthcheckNumber(web, "port", 3000);
+  const webPath = typeof web.path === "string" ? web.path : "/api/health";
+  const proxyHost = typeof proxy.host === "string" ? proxy.host : "127.0.0.1";
+  const proxyPort = readHealthcheckNumber(proxy, "port", 3021);
+  return [
+    {
+      name: "web",
+      type: "http",
+      host: webHost,
+      port: webPort,
+      path: webPath,
+      endpoint: `${webHost}:${webPort}${webPath}`,
+      defaultEndpoint: "127.0.0.1:3000/api/health",
+      expectedStatus: readHealthcheckNumber(web, "expected_status", 200),
+      timeoutMs: readHealthcheckNumber(web, "timeout_seconds", 5) * 1000,
+      retries: readHealthcheckNumber(web, "retries", 6),
+    },
+    {
+      name: "chatgpt-web-proxy",
+      type: "tcp",
+      host: proxyHost,
+      port: proxyPort,
+      endpoint: `${proxyHost}:${proxyPort}`,
+      defaultEndpoint: "127.0.0.1:3021",
+      timeoutMs: readHealthcheckNumber(proxy, "timeout_seconds", 5) * 1000,
+      retries: readHealthcheckNumber(proxy, "retries", 6),
+    },
+  ];
+}
+
+/**
+ * 执行一次 HTTP 健康检查。
+ * @param {object} probe 探针。
+ * @returns {Promise<object>} 结果。
+ */
+async function probeHttpOnce(probe) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), probe.timeoutMs);
+  try {
+    const response = await fetch(`http://${probe.endpoint}`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    return {
+      ok: response.status === probe.expectedStatus,
+      status: response.status,
+      expectedStatus: probe.expectedStatus,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * 执行一次 TCP 健康检查。
+ * @param {object} probe 探针。
+ * @returns {Promise<object>} 结果。
+ */
+async function probeTcpOnce(probe) {
+  return await new Promise((resolve) => {
+    const socket = net.createConnection({ host: probe.host, port: probe.port });
+    const finish = (result) => {
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(probe.timeoutMs);
+    socket.once("connect", () => finish({ ok: true }));
+    socket.once("timeout", () => finish({ ok: false, error: "timeout" }));
+    socket.once("error", (error) =>
+      finish({ ok: false, error: redactSensitiveText(error.message) }),
+    );
+  });
+}
+
+/**
+ * 默认健康检查 runner，支持 Web HTTP 与 ChatGPT Web proxy TCP。
+ * @param {object} probe 探针。
+ * @returns {Promise<object>} 结果。
+ */
+async function defaultHealthcheckRunner(probe) {
+  if (probe.type === "http") {
+    return await probeHttpOnce(probe);
+  }
+  if (probe.type === "tcp") {
+    return await probeTcpOnce(probe);
+  }
+  throw new Error(`unsupported healthcheck type: ${probe.type}`);
+}
+
+/**
+ * 执行 healthcheck probes；返回每个探针的最终状态，不直接修改 current。
+ * @param {object} input 输入。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @param {Function | undefined} input.runner 可注入 probe runner。
+ * @param {string | undefined} input.logPath updater 日志路径。
+ * @returns {Promise<object>} healthcheck 摘要。
+ */
+export async function runHealthchecks({
+  manifest,
+  runner = defaultHealthcheckRunner,
+  logPath = defaultUpdaterLogPath,
+}) {
+  const startedAt = new Date().toISOString();
+  const probes = buildHealthcheckProbes(manifest);
+  const results = [];
+  for (const probe of probes) {
+    const attempts = [];
+    for (let attempt = 1; attempt <= probe.retries; attempt += 1) {
+      try {
+        const result = await runner(probe, attempt);
+        attempts.push({
+          attempt,
+          ok: result.ok === true,
+          result: {
+            ...result,
+            error: result.error ? redactSensitiveText(result.error) : null,
+          },
+        });
+        if (result.ok === true) {
+          break;
+        }
+      } catch (error) {
+        attempts.push({
+          attempt,
+          ok: false,
+          result: {
+            error: redactSensitiveText(
+              error instanceof Error ? error.message : String(error),
+            ),
+          },
+        });
+      }
+      if (attempt < probe.retries) {
+        await sleep(1000);
+      }
+    }
+    const ok = attempts.some((attempt) => attempt.ok);
+    results.push({
+      name: probe.name,
+      type: probe.type,
+      endpoint: probe.endpoint,
+      defaultEndpoint: probe.defaultEndpoint,
+      ok,
+      attempts,
+    });
+    await appendUpdaterLog(logPath, {
+      at: new Date().toISOString(),
+      event: "healthcheck_probe_finished",
+      name: probe.name,
+      endpoint: probe.endpoint,
+      ok,
+    });
+  }
+  const finishedAt = new Date().toISOString();
+  const ok = results.every((result) => result.ok);
+  return {
+    healthcheck_started_at: startedAt,
+    healthcheck_finished_at: finishedAt,
+    healthcheck_status: ok ? "completed" : "failed",
+    ok,
+    results,
+  };
+}
+
+/**
+ * 回滚应用层 current 指针和白名单服务；数据库迁移不可自动回滚。
+ * @param {object} input 输入。
+ * @param {string} input.installRoot 安装根目录。
+ * @param {object} input.previousCurrent 切换前 current 摘要。
+ * @param {Record<string, unknown>} input.manifest manifest。
+ * @param {Function | undefined} input.systemctlRunner 可注入 systemctl runner。
+ * @param {string | undefined} input.logPath updater 日志路径。
+ * @returns {Promise<object>} rollback 摘要。
+ */
+export async function rollbackApplicationLayer({
+  installRoot,
+  previousCurrent,
+  manifest,
+  systemctlRunner,
+  logPath = defaultUpdaterLogPath,
+}) {
+  const startedAt = new Date().toISOString();
+  assert(
+    previousCurrent?.exists === true && typeof previousCurrent.releaseDir === "string",
+    "previous_current is required for application rollback",
+  );
+  const restoredCurrent = await pointCurrentToRelease({
+    installRoot,
+    targetReleaseDir: previousCurrent.releaseDir,
+  });
+  const restart = await restartWhitelistedServices({
+    manifest,
+    runner: systemctlRunner,
+    logPath,
+  });
+  const finishedAt = new Date().toISOString();
+  const rollback = {
+    rollback_status: "completed",
+    rollback_started_at: startedAt,
+    rollback_finished_at: finishedAt,
+    previous_current: previousCurrent,
+    restored_current: restoredCurrent,
+    restarted_units: restart.restarted_units,
+    db_migration_irreversible: true,
+    rollback_scope:
+      "restore current and restart gpt2image-web.service/gpt2image-chatgpt-web-proxy.service only; DB migration must be handled manually if needed",
+  };
+  await appendUpdaterLog(logPath, {
+    at: finishedAt,
+    event: "rollback_finished",
+    rollback_status: "completed",
+    previous_current: previousCurrent.releaseDir,
+    db_migration_irreversible: true,
+  });
+  return rollback;
+}
+
+/**
+ * 执行 apply/update 命令骨架，按 preflight -> installStagedRelease -> runCandidateMigration -> current switch -> restart -> healthcheck 顺序推进。
+ * @param {Map<string, string | boolean>} args 参数映射。
+ * @param {"apply" | "update"} command 命令名。
+ * @param {object} options 注入项。
+ * @returns {Promise<object>} apply/update 预检摘要。
+ */
+async function runApply(args, command = "apply", options = {}) {
+  const { installRoot, manifestSource, envFile } = requireApplyRuntimeArgs(args);
+  await verifySchemaBaseline();
+  const expectedPlatform = readStringArg(args, "platform") ?? supportedPlatform;
+  const { source, manifest } = await readManifestSource(manifestSource);
+  verifyManifest(manifest, expectedPlatform);
+  const preflight = await preflightApplyRuntime({ installRoot, manifest, envFile });
+  const artifactPath = readStringArg(args, "artifact-file");
+  const runId = readStringArg(args, "run-id");
+  if (artifactPath) {
+    const lock = await acquireUpdateLock(installRoot);
+    try {
+      const stageResult = await stageArtifact({
+        installRoot,
+        artifactPath: path.resolve(artifactPath),
+        manifest,
+        runId,
+        envFile,
+      });
+      const install = await installStagedRelease({
+        installRoot,
+        manifest,
+        runId,
+        stageResult,
+        expectedPlatform,
+      });
+      const previousCurrent = await capturePreviousCurrent({ installRoot });
+      assert(
+        previousCurrent.exists === true,
+        "previous_current is required before DB migration and rollback",
+      );
+      const migration = await runCandidateMigration({
+        installRoot,
+        manifest,
+        runId,
+        envFile,
+        previousCurrent,
+        runner: options.migrationRunner,
+        logPath: options.logPath,
+      });
+      const currentSwitch = await switchCurrentSymlink({
+        installRoot,
+        manifest,
+        previousCurrent,
+      });
+      const restart = await restartWhitelistedServices({
+        manifest,
+        runner: options.systemctlRunner,
+        logPath: options.logPath,
+      });
+      await writeApplyJournal(migration.apply_json, {
+        previous_current: previousCurrent,
+        current_target: currentSwitch.current_target,
+        switched_at: currentSwitch.switched_at,
+        restarted_units: restart.restarted_units,
+        healthcheck_status: "running",
+        rollback_status: "not_required",
+      });
+      const healthcheck = await runHealthchecks({
+        manifest,
+        runner: options.healthcheckRunner,
+        logPath: options.logPath,
+      });
+      if (!healthcheck.ok) {
+        const rollback = await rollbackApplicationLayer({
+          installRoot,
+          previousCurrent,
+          manifest,
+          systemctlRunner: options.systemctlRunner,
+          logPath: options.logPath,
+        });
+        const rollbackHealthcheck = await runHealthchecks({
+          manifest,
+          runner: options.healthcheckRunner,
+          logPath: options.logPath,
+        });
+        await writeApplyJournal(migration.apply_json, {
+          healthcheck_results: healthcheck,
+          rollback_status: rollback.rollback_status,
+          rollback,
+          rollback_healthcheck_results: rollbackHealthcheck,
+          db_migration_irreversible: true,
+        });
+        throw new Error(
+          `healthcheck failed after current switch; application rollback ${rollback.rollback_status}`,
+        );
+      }
+      await writeApplyJournal(migration.apply_json, {
+        healthcheck_results: healthcheck,
+        healthcheck_status: healthcheck.healthcheck_status,
+        rollback_status: "not_required",
+        db_migration_irreversible: true,
+      });
+      return {
+        command,
+        dryRun: false,
+        phase: "M1-P4 install migrate switch restart healthcheck",
+        applied: true,
+        installed: true,
+        migrated: true,
+        switched: true,
+        restarted: true,
+        healthchecked: true,
+        installRoot,
+        manifest: source,
+        envFile,
+        preflight,
+        install,
+        migration,
+        currentSwitch,
+        restart,
+        healthcheck,
+        blockedOperations: [
+          "touch PostgreSQL/Nginx/Docker/Admin/UOL/UI",
+        ],
+      };
+    } finally {
+      await releaseUpdateLock(lock);
+    }
+  }
+  return {
+    command,
+    dryRun: false,
+    phase: "M1-P4 preflight skeleton",
+    applied: false,
+    installRoot,
+    manifest: source,
+    envFile,
+    preflight,
+    blockedOperations: [
+      "provide --artifact-file to install releases/<version>",
+      "switch current",
+      "run migrations",
+      "call systemctl",
+      "restart gpt2image-web.service",
+      "restart gpt2image-chatgpt-web-proxy.service",
+      "touch PostgreSQL/Nginx/Docker/Admin/UOL/UI",
+    ],
+  };
+}
+
+/**
  * 输出 JSON。
  * @param {(message: string) => void} write 输出函数。
  * @param {unknown} value 输出值。
  * @returns {void} 无返回。
  */
 function writeJson(write, value) {
-  write(`${JSON.stringify(value, null, 2)}\n`);
+  write(`${redactSensitiveText(JSON.stringify(value, null, 2))}\n`);
 }
 
 /**
@@ -1073,7 +2809,13 @@ function writeJson(write, value) {
  * @returns {void} 无返回。
  */
 function assertDryRunFlagAllowed(command, args) {
-  if ((command === "download" || command === "stage") && args.has("dry-run")) {
+  if (
+    (command === "apply" ||
+      command === "download" ||
+      command === "stage" ||
+      command === "update") &&
+    args.has("dry-run")
+  ) {
     throw new Error(
       `${command} does not support --dry-run; use check, plan, status, or dry-run instead`,
     );
@@ -1096,8 +2838,9 @@ export async function dispatch(argv, write = (message) => process.stdout.write(m
         selfTest === "cli" ||
         selfTest === "check" ||
         selfTest === "download" ||
-        selfTest === "stage",
-      "--self-test only supports all, cli, check, download, or stage",
+        selfTest === "stage" ||
+        selfTest === "apply",
+      "--self-test only supports all, cli, check, download, stage, or apply",
     );
     if (selfTest === "cli") {
       await runCliSelfTest();
@@ -1119,10 +2862,16 @@ export async function dispatch(argv, write = (message) => process.stdout.write(m
       write("Local updater stage self-test passed.\n");
       return;
     }
+    if (selfTest === "apply") {
+      await runApplySelfTest();
+      write("Local updater apply self-test passed.\n");
+      return;
+    }
     await runCliSelfTest();
     await runCheckSelfTest();
     await runDownloadSelfTest();
     await runStageSelfTest();
+    await runApplySelfTest();
     write("Local updater self-test passed.\n");
     return;
   }
@@ -1134,6 +2883,10 @@ export async function dispatch(argv, write = (message) => process.stdout.write(m
 
   assert(commandNames.has(command), `Unknown command: ${command}`);
   assertDryRunFlagAllowed(command, args);
+  if (command === "apply" || command === "update") {
+    writeJson(write, await runApply(args, command));
+    return;
+  }
   if (command === "check") {
     writeJson(write, await runCheck(args));
     return;
@@ -1512,9 +3265,10 @@ async function invokeDownloadFailure(input) {
 /**
  * 写入最小可验证 bundle 目录。
  * @param {string} bundleDir bundle 目录。
+ * @param {Record<string, unknown>} manifestOverrides manifest 覆盖项。
  * @returns {Promise<void>} 无返回。
  */
-async function writeMinimalBundleFixture(bundleDir) {
+async function writeMinimalBundleFixture(bundleDir, manifestOverrides = {}) {
   const directoryPaths = new Set([
     "apps/web/.next/static",
     "apps/web/public",
@@ -1530,7 +3284,7 @@ async function writeMinimalBundleFixture(bundleDir) {
 `);
     }
   }
-  await writeSelfTestManifest(path.join(bundleDir, "manifest.json"));
+  await writeSelfTestManifest(path.join(bundleDir, "manifest.json"), manifestOverrides);
   const manifestSha256 = await sha256File(path.join(bundleDir, "manifest.json"));
   await writeFile(path.join(bundleDir, "SHA256SUMS"), `${manifestSha256}  manifest.json
 `);
@@ -1540,11 +3294,12 @@ async function writeMinimalBundleFixture(bundleDir) {
  * 创建 tar.gz fixture。
  * @param {string} tempRoot 临时目录。
  * @param {string} bundleName bundle 目录名。
+ * @param {Record<string, unknown>} manifestOverrides manifest 覆盖项。
  * @returns {Promise<string>} artifact 路径。
  */
-async function createTarFixture(tempRoot, bundleName) {
+async function createTarFixture(tempRoot, bundleName, manifestOverrides = {}) {
   const bundleDir = path.join(tempRoot, bundleName);
-  await writeMinimalBundleFixture(bundleDir);
+  await writeMinimalBundleFixture(bundleDir, manifestOverrides);
   const artifactPath = path.join(tempRoot, `${bundleName}.tar.gz`);
   const result = spawnSync("tar", ["-czf", artifactPath, "-C", tempRoot, bundleName], {
     encoding: "utf8",
@@ -1688,6 +3443,364 @@ async function invokeStageFailure(input) {
 }
 
 /**
+ * 构建 apply 自测 fixture。覆盖 migration failure、healthcheck rollback、service whitelist、secret redaction 和 stale lock。
+ * @param {string} tempRoot 临时根目录。
+ * @param {string} name fixture 名称。
+ * @param {Record<string, unknown>} manifestOverrides detached manifest 覆盖项。
+ * @returns {Promise<object>} fixture。
+ */
+async function createApplySelfTestFixture(tempRoot, name, manifestOverrides = {}) {
+  const fixtureRoot = path.join(tempRoot, name);
+  const installRoot = path.join(fixtureRoot, "install");
+  const previousVersion = "v0.0.0-alpha.0";
+  const nextVersion =
+    typeof manifestOverrides.version === "string"
+      ? manifestOverrides.version
+      : "v0.0.1-alpha.0";
+  const previousRelease = path.join(installRoot, "releases", previousVersion);
+  await mkdir(previousRelease, { recursive: true });
+  await mkdir(path.join(installRoot, "shared", "staging"), { recursive: true });
+  await writeSelfTestManifest(path.join(previousRelease, "manifest.json"), {
+    version: previousVersion,
+  });
+  await symlink(
+    previousRelease,
+    path.join(installRoot, "current"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+
+  const envFile = path.join(fixtureRoot, "gpt2image.env");
+  await writeFile(
+    envFile,
+    [
+      "DATABASE_URL=postgresql://user:db-pass@localhost/app",
+      "BETTER_AUTH_SECRET=auth-pass",
+      "CHATGPT_WEB_PROXY_SECRET=proxy-pass",
+      "",
+    ].join("\n"),
+  );
+
+  const bundleName = `gpt2image-pro-${nextVersion}-linux-x64`;
+  const internalManifestOverrides = {
+    version: nextVersion,
+    minimum_supported_version: previousVersion,
+    migration_mode: "pre_switch",
+  };
+  const artifactPath = await createTarFixture(
+    fixtureRoot,
+    bundleName,
+    internalManifestOverrides,
+  );
+  const artifactSha256 = await sha256File(artifactPath);
+  const manifestPath = await writeNamedSelfTestManifest(fixtureRoot, `${name}-manifest`, {
+    ...internalManifestOverrides,
+    artifact_url: `https://downloads.example.invalid/gpt2image-pro/${nextVersion}/${bundleName}.tar.gz`,
+    artifact_sha256: artifactSha256,
+    ...manifestOverrides,
+  });
+  return {
+    fixtureRoot,
+    installRoot,
+    envFile,
+    artifactPath,
+    manifestPath,
+    logPath: path.join(fixtureRoot, "updater.log"),
+    previousRelease,
+    nextVersion,
+    runId: name,
+  };
+}
+
+/**
+ * 构建 apply 参数 Map。
+ * @param {object} fixture fixture。
+ * @returns {Map<string, string>} 参数。
+ */
+function buildApplyArgs(fixture) {
+  return new Map([
+    ["install-root", fixture.installRoot],
+    ["manifest", fixture.manifestPath],
+    ["env-file", fixture.envFile],
+    ["artifact-file", fixture.artifactPath],
+    ["run-id", fixture.runId],
+  ]);
+}
+
+/**
+ * 捕获 apply 失败消息。
+ * @param {object} fixture fixture。
+ * @param {object} options 注入项。
+ * @param {string} label 标签。
+ * @returns {Promise<string>} 错误消息。
+ */
+async function invokeApplyFailure(fixture, options, label = "apply") {
+  try {
+    await runApply(buildApplyArgs(fixture), "apply", options);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error(`${label} was expected to fail`);
+}
+
+/**
+ * 断言 current 指向指定 release。
+ * @param {string} installRoot 安装根目录。
+ * @param {string} expectedRelease 期望 release。
+ * @param {string} message 错误消息。
+ * @returns {Promise<void>} 无返回。
+ */
+async function assertCurrentPointsTo(installRoot, expectedRelease, message) {
+  const currentRealPath = await realpath(path.join(installRoot, "current"));
+  const expectedRealPath = await realpath(expectedRelease);
+  assertSelfTest(currentRealPath === expectedRealPath, message);
+}
+
+/**
+ * 断言文本不含敏感值。
+ * @param {string} text 文本。
+ * @param {string} label 标签。
+ * @returns {void} 无返回。
+ */
+function assertSecretsRedacted(text, label) {
+  for (const secret of ["db-pass", "auth-pass", "proxy-pass", "bearer-token"]) {
+    assertSelfTest(!text.includes(secret), `${label} should redact ${secret}`);
+  }
+}
+
+/**
+ * 运行 apply 自测，不调用真实 systemctl、真实数据库或生产 URL。
+ * @returns {Promise<void>} 无返回。
+ */
+export async function runApplySelfTest() {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gpt2image-updater-apply-"));
+  try {
+    const migrationFailure = await createApplySelfTestFixture(
+      tempRoot,
+      "migration-failure",
+    );
+    const migrationSystemctlCalls = [];
+    const migrationError = await invokeApplyFailure(migrationFailure, {
+      logPath: migrationFailure.logPath,
+      migrationRunner: async (command) => {
+        if (command === "pnpm") {
+          return {
+            status: 1,
+            signal: null,
+            stdout: "DATABASE_URL=postgresql://user:db-pass@localhost/app",
+            stderr: "Authorization: Bearer bearer-token",
+          };
+        }
+        return { status: 0, signal: null, stdout: "", stderr: "" };
+      },
+      systemctlRunner: async (command, args) => {
+        migrationSystemctlCalls.push([command, ...args].join(" "));
+        return { status: 0, signal: null, stdout: "", stderr: "" };
+      },
+      healthcheckRunner: async () => ({ ok: true }),
+    }, "migration failure");
+    assertSelfTest(
+      migrationError.includes("DB migration command failed"),
+      "migration failure should stop apply",
+    );
+    await assertCurrentPointsTo(
+      migrationFailure.installRoot,
+      migrationFailure.previousRelease,
+      "migration failure should keep current on previous release",
+    );
+    assertSelfTest(
+      migrationSystemctlCalls.length === 0,
+      "migration failure should not restart services",
+    );
+    assertSelfTest(
+      !(await pathExists(resolveLockPath(migrationFailure.installRoot))),
+      "migration failure should release shared/updater.lock",
+    );
+    const failedApplyJson = await readFile(
+      path.join(
+        migrationFailure.installRoot,
+        "shared",
+        "staging",
+        migrationFailure.runId,
+        "apply.json",
+      ),
+      "utf8",
+    );
+    assertSelfTest(
+      failedApplyJson.includes("\"migration_status\": \"failed\""),
+      "migration failure should write failed apply.json",
+    );
+    assertSelfTest(
+      failedApplyJson.includes("\"db_migration_irreversible\": true"),
+      "migration failure should keep db_migration_irreversible",
+    );
+    assertSecretsRedacted(failedApplyJson, "apply.json secret redaction");
+    assertSecretsRedacted(
+      await readFile(migrationFailure.logPath, "utf8"),
+      "updater log secret redaction",
+    );
+
+    const missingCurrent = await createApplySelfTestFixture(tempRoot, "missing-current");
+    await rm(path.join(missingCurrent.installRoot, "current"), {
+      recursive: true,
+      force: true,
+    });
+    let missingCurrentMigrationCalls = 0;
+    const missingCurrentError = await invokeApplyFailure(missingCurrent, {
+      logPath: missingCurrent.logPath,
+      migrationRunner: async () => {
+        missingCurrentMigrationCalls += 1;
+        return { status: 0, signal: null, stdout: "", stderr: "" };
+      },
+      systemctlRunner: async () => ({ status: 0, signal: null, stdout: "", stderr: "" }),
+      healthcheckRunner: async () => ({ ok: true }),
+    }, "missing current");
+    assertSelfTest(
+      missingCurrentError.includes("previous_current is required before DB migration"),
+      "missing current should fail before DB migration",
+    );
+    assertSelfTest(
+      missingCurrentMigrationCalls === 0,
+      "missing current should not run DB migration",
+    );
+
+    const healthRollback = await createApplySelfTestFixture(
+      tempRoot,
+      "healthcheck-rollback",
+      {
+        healthcheck: {
+          web: {
+            type: "http",
+            host: "127.0.0.1",
+            port: 3000,
+            path: "/api/health",
+            expected_status: 200,
+            timeout_seconds: 1,
+            retries: 1,
+          },
+          "chatgpt-web-proxy": {
+            type: "tcp",
+            host: "127.0.0.1",
+            port: 3021,
+            timeout_seconds: 1,
+            retries: 1,
+          },
+        },
+      },
+    );
+    const healthSystemctlCalls = [];
+    let healthcheckRun = 0;
+    const rollbackError = await invokeApplyFailure(healthRollback, {
+      logPath: healthRollback.logPath,
+      migrationRunner: async () => ({ status: 0, signal: null, stdout: "", stderr: "" }),
+      systemctlRunner: async (command, args) => {
+        healthSystemctlCalls.push([command, ...args].join(" "));
+        return { status: 0, signal: null, stdout: "", stderr: "" };
+      },
+      healthcheckRunner: async (probe) => {
+        if (probe.name === "web") {
+          healthcheckRun += 1;
+        }
+        return { ok: healthcheckRun > 1 };
+      },
+    }, "healthcheck rollback");
+    assertSelfTest(
+      rollbackError.includes("application rollback completed"),
+      "healthcheck rollback should report completed rollback",
+    );
+    await assertCurrentPointsTo(
+      healthRollback.installRoot,
+      healthRollback.previousRelease,
+      "healthcheck rollback should restore previous_current",
+    );
+    assertSelfTest(
+      healthSystemctlCalls.length === 4,
+      "healthcheck rollback should restart two whitelist services twice",
+    );
+    const rollbackApplyJson = await readFile(
+      path.join(
+        healthRollback.installRoot,
+        "shared",
+        "staging",
+        healthRollback.runId,
+        "apply.json",
+      ),
+      "utf8",
+    );
+    assertSelfTest(
+      rollbackApplyJson.includes("\"rollback_status\": \"completed\""),
+      "healthcheck rollback should write rollback_status",
+    );
+
+    const serviceWhitelist = await createApplySelfTestFixture(
+      tempRoot,
+      "service-whitelist",
+      {
+        services: {
+          web: { systemd_unit: "gpt2image-web.service" },
+          "chatgpt-web-proxy": {
+            systemd_unit: "gpt2image-chatgpt-web-proxy.service",
+          },
+          postgres: { systemd_unit: "postgresql.service" },
+        },
+      },
+    );
+    const whitelistError = await invokeApplyFailure(serviceWhitelist, {
+      logPath: serviceWhitelist.logPath,
+      migrationRunner: async () => ({ status: 0, signal: null, stdout: "", stderr: "" }),
+      systemctlRunner: async () => ({ status: 0, signal: null, stdout: "", stderr: "" }),
+      healthcheckRunner: async () => ({ ok: true }),
+    }, "service whitelist");
+    assertSelfTest(
+      whitelistError.includes("gpt2image-web.service") ||
+        whitelistError.includes("postgresql.service"),
+      "service whitelist should reject non-whitelisted unit",
+    );
+
+    const symlinkEscapeRoot = path.join(tempRoot, "symlink-escape");
+    const symlinkInstallRoot = path.join(symlinkEscapeRoot, "install");
+    const outsideRelease = path.join(symlinkEscapeRoot, "outside-release");
+    await mkdir(path.join(symlinkInstallRoot, "releases"), { recursive: true });
+    await mkdir(outsideRelease, { recursive: true });
+    await symlink(
+      outsideRelease,
+      path.join(symlinkInstallRoot, "current"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    try {
+      await capturePreviousCurrent({ installRoot: symlinkInstallRoot });
+      throw new Error("symlink escape should fail");
+    } catch (error) {
+      assertSelfTest(
+        String(error).includes("outside"),
+        "symlink escape should be rejected",
+      );
+    }
+
+    const staleLock = await createApplySelfTestFixture(tempRoot, "stale-lock");
+    const staleLockPath = resolveLockPath(staleLock.installRoot);
+    await mkdir(staleLockPath, { recursive: true });
+    await writeFile(
+      path.join(staleLockPath, "metadata.json"),
+      `${JSON.stringify({ pid: 12345, created_at: "2026-06-22T00:00:00.000Z" }, null, 2)}
+`,
+    );
+    const staleLockError = await invokeApplyFailure(staleLock, {
+      logPath: staleLock.logPath,
+      migrationRunner: async () => ({ status: 0, signal: null, stdout: "", stderr: "" }),
+      systemctlRunner: async () => ({ status: 0, signal: null, stdout: "", stderr: "" }),
+      healthcheckRunner: async () => ({ ok: true }),
+    }, "stale lock");
+    assertSelfTest(
+      staleLockError.includes("shared/updater.lock"),
+      "stale lock should report shared/updater.lock",
+    );
+    assertSelfTest(await pathExists(staleLockPath), "stale lock should not be deleted");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+/**
  * 主流程。
  * @returns {Promise<void>} 无返回。
  */
@@ -1697,7 +3810,7 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(redactSensitiveText(error instanceof Error ? error.message : String(error)));
     process.exitCode = 1;
   });
 }

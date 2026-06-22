@@ -1,6 +1,6 @@
 # Binary-Style 部署契约
 
-本文定义 GPT2Image-Pro 新增 binary-style 部署模式的首版契约。它约束 release artifact、manifest、checksum、updater 和 systemd 单元实现；M1-P2 起 GitHub Release 会附加 binary-style release assets，但当前仍不表示在线 updater、本地切换、后台 admin operation 或后台 UI 已经可用。现有 Docker Compose 发布链路继续保留，binary-style 不替换 Docker Compose，也不改变 README 中推荐的新部署路径。
+本文定义 GPT2Image-Pro 新增 binary-style 部署模式的首版契约。它约束 release artifact、manifest、checksum、updater 和 systemd 单元实现；M1-P2 起 GitHub Release 会附加 binary-style release assets，M1-P3/M1-P4 已提供本地 updater CLI/script core 与受限 apply/update 闭环，但后台 Admin Operation、UOL operation、server action、api route 或后台 UI 仍留到 M1-P5。现有 Docker Compose 发布链路继续保留，binary-style 不替换 Docker Compose，也不改变 README 中推荐的新部署路径。
 
 ## 目标与非目标
 
@@ -246,7 +246,7 @@ unzip -l dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64.zip
 
 `manifest.json` release asset 是后续 updater 的校验入口，记录 version、commit、platform、artifact_url、artifact_sha256、minimum_supported_version、migration_mode、services 和 healthcheck。bundle 内也保留一份 manifest 供解包后本地查看；下载校验以 release asset 中的 detached `manifest.json` 和 `.sha256` 为准。
 
-M1-P2 仍不包含 updater CLI，不实现本地下载、解包、切换、重启或回滚，也不实现后台 admin operation、后台 UI、Sub2API、Codex 登录、Agent 分支、批量图片工具或 PSD。
+M1-P2 release assets 的历史边界仍是：当前仍不表示在线 updater、本地切换、后台 admin operation 或后台 UI 已经可用；该阶段不实现本地下载、解包、切换、重启或回滚，也不实现 Sub2API、Codex 登录、Agent 分支、批量图片工具或 PSD。
 
 ## M1-P3 本地 updater CLI
 
@@ -289,6 +289,98 @@ git diff --check -- scripts/binary-style-release-lib.mjs scripts/verify-binary-r
 ```
 
 如果本地没有 M1-P2 smoke bundle，可先按上一节 `pnpm build:binary-bundle` 命令生成后再执行 `pnpm verify:binary-bundle`。
+
+## M1-P4 本地 apply/update 闭环
+
+M1-P4 把本地 updater 从只读预检与 staging 推进到真实
+apply/update。该命令是 mutating 操作，不提供 `--dry-run`；演练和只读检查继续使用
+`check`、`plan`、`status` 或 `dry-run`。为避免误触生产更新，`package.json` 只暴露安全自测脚本
+`pnpm updater:self-test:apply`，不提供无参数 `updater:apply` 包装。
+
+本地自测命令：
+
+```bash
+pnpm updater:self-test:apply
+node scripts/local-updater.mjs --self-test apply
+```
+
+生产服务器手动 apply 示例必须显式传入安装根、manifest、env 文件和 run id：
+
+```bash
+node scripts/local-updater.mjs apply \
+  --install-root /opt/gpt2image \
+  --manifest ./manifest.json \
+  --artifact-file /opt/gpt2image/shared/staging/v0.5.7-beta.1/downloads/gpt2image-pro-v0.5.7-beta.1-linux-x64.tar.gz \
+  --env-file /etc/gpt2image/gpt2image.env \
+  --run-id v0.5.7-beta.1
+```
+
+`update` 使用同一执行路径，适合作为后续下载入口编排后的命令名；M1-P4
+仍建议运维先用 `download`/`stage` 或显式 artifact 路径完成可审计准备，再执行
+`apply`。
+
+M1-P4 执行顺序必须保持如下闭环：
+
+1. 通过 `shared/updater.lock` 加锁，发现 stale lock 时只报告元数据和人工处理建议，不自动删除。
+2. 写入并复用 `shared/staging/<run-id>`，其中包含下载产物、stage 目录、日志摘要和
+   `apply.json`。
+3. 从已验证 stage 安装到 `releases/.installing-<run-id>`，复验必需文件、禁入路径、
+   `manifest.json` 和 `SHA256SUMS`。
+4. 原子完成正式 release 目录 `releases/<version>`，不覆盖旧 release，不删除失败证据。
+5. 捕获并校验 `previous_current`，确认上一版 `current` 位于 `releases/` 内；若缺失或越界，
+   停止更新，且不执行数据库 migration。
+6. 在 `releases/<version>/migrator` 中运行 candidate migrator：
+   `corepack enable`，随后执行 `pnpm --dir packages/database db:migrate`。该步骤先于
+   `current` 切换；失败时停止，旧版本继续运行。
+7. 把 `current` 指向 `releases/<version>`。
+8. 只重启 `gpt2image-web.service` 和
+   `gpt2image-chatgpt-web-proxy.service`；禁止触碰 PostgreSQL、Nginx、Docker
+   或其他 systemd unit。
+9. 执行 healthcheck：默认 Web HTTP probe 为
+   `127.0.0.1:3000/api/health`，proxy TCP probe 为 `127.0.0.1:3021`。
+10. healthcheck 失败后进入 rollback，只恢复应用层 `current` 和白名单服务进程。
+
+`shared/staging/<run-id>/apply.json` 是 apply/update 的审计 journal。它应至少记录
+`migration_started_at`、`migration_finished_at`、`migration_status`、
+`candidate_release`、`candidate_migrator`、`previous_current`、
+`current_target`、`healthcheck_results`、`rollback_status` 和
+`db_migration_irreversible: true`。日志写入 `/var/log/gpt2image/updater.log`，必须先脱敏。
+
+Rollback runbook：
+
+1. 读取 `shared/staging/<run-id>/apply.json`，确认 `previous_current`、失败 release
+   version、healthcheck 结果和 `rollback_status`。
+2. 将 `current` 恢复到 `previous_current.releaseDir` 对应的上一版 release。
+3. 仅重启 `gpt2image-web.service` 和
+   `gpt2image-chatgpt-web-proxy.service`，再执行同一组 healthcheck。
+4. 保留失败的 `releases/<version>`、`shared/staging/<run-id>`、
+   `/var/log/gpt2image/updater.log` 与 migrator 输出，供人工排查。
+5. 数据库 migration 不自动 rollback。若 migration 已成功而新应用失败，应用层回滚只能恢复
+   app/proxy 的版本和进程；schema/data 处理必须按备份或迁移 runbook 人工执行。
+
+M1-P4 明确不做以下动作：
+
+- 不实现 Admin Operation、UOL operation、server action、api route 或后台 UI；这些属于
+  M1-P5。
+- 不修改 `apps/web` 或 `packages/shared/src/uol`。
+- 不重启或管理 PostgreSQL、Nginx、Docker、`postgresql.service`、`nginx.service`、
+  `docker.service` 或其他同机服务。
+- 不承诺数据库自动 rollback。
+- 不读取、打印或落盘 `/etc/gpt2image/gpt2image.env` 中的真实 secrets。
+
+Phase 4 final gate：
+
+```bash
+node --check scripts/local-updater.mjs
+node scripts/local-updater.mjs --self-test
+node scripts/local-updater.mjs --self-test apply
+node scripts/verify-binary-release-bundle.mjs --self-test
+pnpm verify:binary-contract
+pnpm lint
+pnpm test
+pnpm typecheck
+git diff --check -- scripts/local-updater.mjs scripts/binary-style-release-lib.mjs package.json docs/deployment/binary-style-deployment.md .workflow/roadmap.md
+```
 
 ## 后续实现约束
 

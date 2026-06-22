@@ -19,7 +19,8 @@
     "updater:check": "node scripts/local-updater.mjs check",
     "updater:plan": "node scripts/local-updater.mjs plan",
     "updater:status": "node scripts/local-updater.mjs status",
-    "updater:dry-run": "node scripts/local-updater.mjs dry-run"
+    "updater:dry-run": "node scripts/local-updater.mjs dry-run",
+    "updater:self-test:apply": "node scripts/local-updater.mjs --self-test apply"
   },
   "devDependencies": {
     "turbo": "^2.9.16"
