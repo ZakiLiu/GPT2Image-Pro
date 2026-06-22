@@ -234,11 +234,6 @@ async function withJobLock<T>(
         });
       throw error;
     }
-
-    return {
-      locked: true as const,
-      skipped: false as const,
-    };
   });
 }
 

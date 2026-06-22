@@ -475,7 +475,7 @@ export function ImageLightbox({
                       )}
                       {visibleReferenceImages.map((item, index) => (
                         <button
-                          key={`${item.id}-${index}`}
+                          key={item.id}
                           type="button"
                           onClick={() => setActivePreviewId(item.id)}
                           className={[
@@ -612,7 +612,10 @@ export function ImageLightbox({
                   >
                     <a
                       href={previewImageUrl}
-                      download={generateDownloadFilename(generation.prompt, generation.createdAt)}
+                      download={generateDownloadFilename(
+                        generation.prompt,
+                        generation.createdAt
+                      )}
                       target="_blank"
                       rel="noopener noreferrer"
                     >

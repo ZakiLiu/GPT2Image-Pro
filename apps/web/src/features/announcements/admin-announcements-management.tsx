@@ -128,15 +128,13 @@ function getSeverityMeta(severity: string) {
     case "critical":
       return {
         label: "紧急",
-        className:
-          "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
+        className: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
       };
     case "info":
     default:
       return {
         label: "普通",
-        className:
-          "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
+        className: "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
       };
   }
 }
@@ -554,7 +552,8 @@ export function AdminAnnouncementsManagement({
             </div>
 
             <div className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
-              <label
+              <Label
+                htmlFor="announcement-is-published"
                 className={cn(
                   "flex items-center justify-between gap-3 rounded-md border p-3",
                   form.isPublished && "border-primary/50 bg-primary/5"
@@ -567,6 +566,7 @@ export function AdminAnnouncementsManagement({
                   </span>
                 </span>
                 <Switch
+                  id="announcement-is-published"
                   checked={form.isPublished}
                   onCheckedChange={(checked) =>
                     setForm((current) => ({
@@ -575,8 +575,9 @@ export function AdminAnnouncementsManagement({
                     }))
                   }
                 />
-              </label>
-              <label
+              </Label>
+              <Label
+                htmlFor="announcement-is-pinned"
                 className={cn(
                   "flex items-center justify-between gap-3 rounded-md border p-3",
                   form.isPinned && "border-primary/50 bg-primary/5"
@@ -589,12 +590,13 @@ export function AdminAnnouncementsManagement({
                   </span>
                 </span>
                 <Switch
+                  id="announcement-is-pinned"
                   checked={form.isPinned}
                   onCheckedChange={(checked) =>
                     setForm((current) => ({ ...current, isPinned: checked }))
                   }
                 />
-              </label>
+              </Label>
             </div>
 
             <DialogFooter>

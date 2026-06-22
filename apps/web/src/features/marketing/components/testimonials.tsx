@@ -41,7 +41,10 @@ export function Testimonials() {
         {/* Testimonials Grid */}
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {testimonialItems.map((testimonial, index) => (
-            <Card key={index} className="rounded-xl border-0 bg-muted/50">
+            <Card
+              key={testimonial.author}
+              className="rounded-xl border-0 bg-muted/50"
+            >
               <CardContent className="p-6">
                 <p className="mb-6 text-sm leading-relaxed text-muted-foreground">
                   &ldquo;{testimonial.content}&rdquo;
