@@ -1,0 +1,8 @@
+{
+  "plan_dir": ".workflow\\scratch\\20260622-plan-M1-P4-migration-switch-restart-rollback",
+  "session": ".workflow\\.csv-wave\\20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+  "auto_commit": false,
+  "method": "agent",
+  "phase": "M1-P4",
+  "milestone": "M1"
+}

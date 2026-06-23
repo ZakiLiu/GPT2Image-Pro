@@ -1,0 +1,68 @@
+{
+  "id": "TASK-003",
+  "title": "在 current 切换前执行候选 releases/<version>/migrator 并失败即停",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P4",
+  "wave": 3,
+  "depends_on": [
+    "TASK-002"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    "docs/deployment/binary-style-deployment.md",
+    "scripts/binary-style-release-lib.mjs",
+    "package.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "新增 candidate migrator 步骤，cwd 固定到 releases/<version>/migrator，迁移失败时停止在 current 切换前。 必须显式处理 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env，并拒绝 PostgreSQL、Nginx、Docker 与 Admin/UOL/UI。",
+  "implementation": {
+    "steps": [
+      "实现 runCandidateMigration，等价于在 candidate releases/<version>/migrator 下执行 corepack enable 与 pnpm --dir packages/database db:migrate，禁止 cwd 使用 current。",
+      "迁移 runner 必须可注入；stdout/stderr 先过 redactSensitiveText，再写 updater log 和 shared/staging/<run-id>/apply.json。",
+      "runApply 顺序固定为 preflight -> installStagedRelease -> runCandidateMigration -> switchCurrentSymlink；迁移失败不切 current、不重启 gpt2image-web.service 或 gpt2image-chatgpt-web-proxy.service。",
+      "apply.json 记录 migration_started_at、migration_finished_at、migration_status、candidate_release、db_migration_irreversible=true。",
+      "边界复核：代码和日志中必须保留 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env 这些显式名词。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node --check scripts/local-updater.mjs",
+      "rg -n \"runCandidateMigration|releases/.*/migrator|packages/database db:migrate|migration_started_at|migration_finished_at|db_migration_irreversible|redactSensitiveText|apply\\.json\" scripts/local-updater.mjs",
+      "node -e \"const fs=require('fs'); const t=fs.readFileSync('scripts/local-updater.mjs','utf8'); const m=t.indexOf('runCandidateMigration'); const s=t.indexOf('switchCurrentSymlink'); if (m < 0) throw new Error('missing migration'); if (s >= 0 && m > s) throw new Error('migration after switch');\"",
+      "rg -n \"数据库迁移|DB migration|不可自动回滚|pre_switch|current\" scripts/local-updater.mjs docs/deployment/binary-style-deployment.md",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "cwd 若仍指向 current，会运行错误版本的迁移资产。",
+    "迁移日志可能包含连接串或 secret，必须脱敏。",
+    "迁移成功后新应用失败，数据库 schema 不一定可逆。"
+  ],
+  "rollback": [
+    "移除 runCandidateMigration 和 runApply 中迁移调用。",
+    "保留 shared/staging/<run-id>/apply.json 与日志供排查。",
+    "确认 current 仍指向 previous release 且服务未重启。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T22:20:00+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.summaries/TASK-003-summary.md;.workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    "tests_passed": "true",
+    "findings": "实现 runCandidateMigration：cwd 固定 releases/<version>/migrator，命令为 corepack enable 与 pnpm --dir packages/database db:migrate；apply.json/updater log 脱敏记录迁移状态，失败停在 current/systemd 前。criteria 与注入 runner smoke 均通过。",
+    "error": ""
+  }
+}

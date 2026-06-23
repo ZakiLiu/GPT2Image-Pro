@@ -1,0 +1,77 @@
+{
+  "id": "TASK-007",
+  "title": "更新 M1-P4 文档、package 脚本与最终门禁，明确 Admin/UOL/UI 留到 M1-P5",
+  "type": "docs",
+  "milestone": "M1",
+  "phase": "M1-P4",
+  "wave": 7,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006"
+  ],
+  "read_first": [
+    "docs/deployment/binary-style-deployment.md",
+    "package.json",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    "scripts/local-updater.mjs",
+    "scripts/binary-style-release-lib.mjs",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "docs/deployment/binary-style-deployment.md",
+    "package.json"
+  ],
+  "action": "记录 M1-P4 本地 apply/update runbook、rollback runbook、final gates 和 M1-P5 非目标。 必须显式处理 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env，并拒绝 PostgreSQL、Nginx、Docker 与 Admin/UOL/UI。",
+  "implementation": {
+    "steps": [
+      "在 docs/deployment/binary-style-deployment.md 增加 M1-P4 命令示例，显式带 --install-root /opt/gpt2image、--manifest、--env-file /etc/gpt2image/gpt2image.env、--run-id；mutating apply 不提供 --dry-run。",
+      "文档顺序必须是 shared/updater.lock -> shared/staging -> releases/.installing-<run-id> -> releases/<version> -> candidate migrator -> current -> restart gpt2image-web.service/gpt2image-chatgpt-web-proxy.service -> healthcheck -> rollback。",
+      "文档新增 rollback runbook：读取 shared/staging/<run-id>/apply.json，恢复 previous_current，保留失败 releases/<version>、shared/staging 和日志，说明 DB migration 不自动 rollback。",
+      "package.json 只新增安全脚本 updater:self-test:apply；如执行者选择 updater:apply，必须在文档标注 mutating 且要求显式参数。",
+      "final gates 写入 node --check、local-updater self-test/apply、bundle self-test、verify:binary-contract、pnpm lint/test/typecheck、git diff --check。",
+      "明确 Admin Operation、UOL operation、server action、api route、后台 UI 均留到 M1-P5，执行本计划不得修改 apps/web 或 packages/shared/src/uol。",
+      "边界复核：代码和日志中必须保留 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env 这些显式名词。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node -e \"const p=require('./package.json'); if (!p.scripts['updater:self-test:apply'] && !p.scripts['updater:apply']) throw new Error('missing M1-P4 updater script marker');\"",
+      "rg -n \"M1-P4|apply|update|--self-test apply|shared/updater\\.lock|shared/staging|releases|current|gpt2image-web\\.service|gpt2image-chatgpt-web-proxy\\.service|/etc/gpt2image/gpt2image\\.env\" docs/deployment/binary-style-deployment.md package.json",
+      "rg -n \"Admin Operation|UOL operation|server action|api route|后台 UI|M1-P5\" docs/deployment/binary-style-deployment.md",
+      "node --check scripts/local-updater.mjs && node scripts/local-updater.mjs --self-test && node scripts/local-updater.mjs --self-test apply && node scripts/verify-binary-release-bundle.mjs --self-test && pnpm verify:binary-contract && pnpm lint && pnpm test && pnpm typecheck",
+      "git diff --check -- scripts/local-updater.mjs scripts/binary-style-release-lib.mjs package.json docs/deployment/binary-style-deployment.md .workflow/roadmap.md",
+      "node -e \"const cp=require('child_process'); const out=cp.execSync('git diff --name-only -- apps/web packages/shared/src/uol').toString().trim(); if (out) throw new Error(out);\""
+    ]
+  },
+  "risks": [
+    "无参数 package apply 脚本可能导致误触生产更新。",
+    "M1-P4 若提前接入 Admin/UOL/UI，会绕过本地 updater 稳定性验证。",
+    "final gates 若缺 --self-test apply，无法覆盖 rollback 负向路径。"
+  ],
+  "rollback": [
+    "还原 docs/deployment/binary-style-deployment.md 的 M1-P4 段落和 package.json 新脚本。",
+    "保留 production code 时使用 node scripts/local-updater.mjs --self-test apply 验证命令仍可直接执行。",
+    "确认 git diff --name-only -- apps/web packages/shared/src/uol 无输出。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T22:20:00+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    "result": "completed",
+    "files_modified": "docs/deployment/binary-style-deployment.md;package.json;.workflow/specs/learnings.md;.workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/discoveries.ndjson;.workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.summaries/TASK-007-summary.md",
+    "tests_passed": "true",
+    "findings": "文档新增 M1-P4 apply/update runbook、rollback runbook、final gates 和 M1-P5 非目标；package 只新增 updater:self-test:apply；最终 gates 全部通过。",
+    "error": ""
+  }
+}

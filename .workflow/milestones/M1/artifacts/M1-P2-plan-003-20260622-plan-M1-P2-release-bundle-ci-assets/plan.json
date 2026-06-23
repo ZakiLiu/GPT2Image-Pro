@@ -1,0 +1,178 @@
+{
+  "id": "PLN-M1-P2-release-bundle-ci-assets",
+  "title": "M1-P2：Release Bundle 与 CI 产物执行计划",
+  "scope": "phase",
+  "milestone": "M1",
+  "phase": "M1-P2",
+  "phase_name": "Release Bundle 与 CI 产物",
+  "created_at": "2026-06-22T10:30:00+08:00",
+  "source": {
+    "roadmap": ".workflow/roadmap.md",
+    "session": ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets",
+    "wave_1_findings": ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/prev_context.md",
+    "previous_plan": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json"
+  },
+  "summary": "只覆盖 roadmap item 1 的 M1-P2：在现有 Docker/GHCR/compose release 之外，规划新增 Linux x64 binary-style bundle 构建、bundle 校验、migrator runtime 边界、tag release assets、文档更新和 artifact smoke。计划不实现 updater CLI、后台 UI 或 backlog 功能。",
+  "approach": [
+    "复用 M1-P1 的 binary-style 部署契约、manifest schema、systemd 模板和 verify:binary-contract，先新增可本地执行的构建与校验 npm scripts。",
+    "将 bundle 固定为 Next standalone/static/public、migrator 资产、Go sidecar binary、deploy/systemd 模板、manifest.json、SHA256SUMS、tar.gz、zip 和对应 sha256。",
+    "将 migrator 从仓库源码边界收敛到 bundle 内 migrator/ 目录，包含 packages/database、drizzle 配置、迁移 SQL/meta、pnpm-lock、workspace 与 package 清单。",
+    "只在 .github/workflows/docker-release.yml 上增量追加 binary assets 构建与上传，保留 GHCR 三镜像和 compose tar/zip。",
+    "通过 verify:binary-bundle 与 self-test 覆盖 manifest、artifact_sha256、linux-x64、必需文件、SHA256SUMS、敏感文件和运行态目录禁入。",
+    "最后执行 verify:binary-contract、build:web、Go test/build、bundle build/verify、sha256sum、tar/unzip 清单和 git diff --check 收口。"
+  ],
+  "non_goals": [
+    "不规划或实现 updater CLI、本地下载、解包、切换、重启、健康检查或回滚逻辑。",
+    "不规划或实现后台在线更新 UI、UOL admin operation、远程执行入口或审计状态页。",
+    "不规划或实现 Sub2API、Codex 登录、Agent 分支、批量图片工具或 PSD。",
+    "不替换 Docker Compose 推荐部署，不删除 GHCR 镜像发布，不移除 compose release assets。",
+    "不修改图像生成、credits、storage、moderation、payment、subscription、auth、API Key 或账号池业务逻辑。"
+  ],
+  "task_ids": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006"
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "Bundle 构建入口",
+      "tasks": [
+        "TASK-001"
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "Bundle 校验与负向检查",
+      "tasks": [
+        "TASK-002"
+      ]
+    },
+    {
+      "wave": 3,
+      "label": "Migrator runtime 边界",
+      "tasks": [
+        "TASK-003"
+      ]
+    },
+    {
+      "wave": 4,
+      "label": "Release workflow 接入",
+      "tasks": [
+        "TASK-004"
+      ]
+    },
+    {
+      "wave": 5,
+      "label": "文档同步",
+      "tasks": [
+        "TASK-005"
+      ]
+    },
+    {
+      "wave": 6,
+      "label": "Artifact smoke",
+      "tasks": [
+        "TASK-006"
+      ]
+    }
+  ],
+  "dependencies": {
+    "TASK-001": [],
+    "TASK-002": [
+      "TASK-001"
+    ],
+    "TASK-003": [
+      "TASK-001",
+      "TASK-002"
+    ],
+    "TASK-004": [
+      "TASK-001",
+      "TASK-002",
+      "TASK-003"
+    ],
+    "TASK-005": [
+      "TASK-003",
+      "TASK-004"
+    ],
+    "TASK-006": [
+      "TASK-001",
+      "TASK-002",
+      "TASK-003",
+      "TASK-004",
+      "TASK-005"
+    ]
+  },
+  "readiness_gate": {
+    "status": "passed",
+    "checks": [
+      "已读取 context.md 与 prev_context.md，Wave 1 architecture、patterns、tests、risks、docs 均 completed。",
+      "已读取 roadmap、state.json、index.json 与 M1-P1 plan，确认 phase=M1-P2、milestone=M1、scope=phase。",
+      "已读取 M1-P1 文档、manifest schema/example、systemd 模板和 verify-binary-deployment-contract.mjs。",
+      "已读取 docker-release.yml、ci.yml、Dockerfile.web、Dockerfile.chatgpt-web-proxy、docker-compose.yml、package.json、next.config.mjs、go.mod 和 database package。",
+      "maestro kg 未初始化，已用 maestro search/spec load 与直接文件读取补足上下文。"
+    ]
+  },
+  "confidence": {
+    "overall": 0.82,
+    "context_coverage": 0.92,
+    "scope_clarity": 0.9,
+    "implementation_clarity": 0.82,
+    "verification_strength": 0.82,
+    "rollback_safety": 0.66,
+    "notes": "上下文充分且边界清晰；主要风险是 migrator runtime 自包含程度、Next standalone/native assets 清单和 GitHub Release manifest artifact_url 生成时机。"
+  },
+  "pressure_pass": {
+    "highest_complexity_task": "TASK-004",
+    "concerns": [
+      "docker-release.yml 同时承担 GHCR、compose 和新增 binary assets，误改会破坏现有发布。",
+      "binary assets 依赖 Web build、Go Linux build、bundle build 和 bundle verify，多段路径漂移会造成上传错误。",
+      "GitHub draft release 上传前不一定能知道最终 artifact_url，校验不能依赖远端 URL。"
+    ],
+    "mitigations": [
+      "TASK-004 convergence 同时检查三镜像、compose tar/zip 和 binary assets 名称。",
+      "TASK-004 只追加步骤，不删除 docker job 或 compose bundle。",
+      "verify:binary-bundle 以本地 artifact 文件和 artifact_sha256 为强校验源。",
+      "共享文件任务串行化，避免脚本、workflow 和文档互相覆盖。"
+    ]
+  },
+  "collision_detection": {
+    "status": "passed",
+    "checked_files": [
+      ".workflow/state.json",
+      ".workflow/index.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json"
+    ],
+    "same_phase_plan_found": false,
+    "notes": "state.json/index.json 当前只登记 M1-P1 plan 与 M1-P1 execute，未发现已注册 M1-P2 plan。TASK-001/003 和 TASK-002/003 共享脚本文件，已通过 depends_on 串行化。"
+  },
+  "verification": {
+    "plan_artifacts": [
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json",
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/.task/TASK-001.json",
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/.task/TASK-002.json",
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/.task/TASK-003.json",
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/.task/TASK-004.json",
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/.task/TASK-005.json",
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/.task/TASK-006.json"
+    ],
+    "expected_execution_gates": [
+      "pnpm verify:binary-contract",
+      "pnpm build:web",
+      "cd services/chatgpt-web-proxy && go test ./...",
+      "cd services/chatgpt-web-proxy && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags=\"-s -w\" -o ../../dist/binary-style/smoke/chatgpt-web-proxy .",
+      "pnpm build:binary-bundle -- --version v0.0.0-alpha.0 --commit 0000000000000000000000000000000000000000 --proxy-binary dist/binary-style/smoke/chatgpt-web-proxy",
+      "pnpm verify:binary-bundle -- --bundle-dir dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64 --manifest dist/binary-style/v0.0.0-alpha.0/manifest.json --artifact dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz",
+      "sha256sum -c dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz.sha256",
+      "sha256sum -c dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.zip.sha256",
+      "tar -tzf dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz | rg -n \"apps/web/.next/standalone|migrator/packages/database|bin/chatgpt-web-proxy|manifest.json|SHA256SUMS\"",
+      "unzip -l dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.zip | rg -n \"apps/web/.next/standalone|migrator/packages/database|bin/chatgpt-web-proxy|manifest.json|SHA256SUMS\"",
+      "git diff --check -- scripts/build-binary-release-bundle.mjs scripts/verify-binary-release-bundle.mjs .github/workflows/docker-release.yml README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md package.json"
+    ],
+    "json_validation": "node -e \"const fs=require('fs'); const base='.workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets'; JSON.parse(fs.readFileSync(base + '/plan.json','utf8')); for(let i=1;i<=6;i++){ const id='TASK-' + String(i).padStart(3,'0'); JSON.parse(fs.readFileSync(base + '/.task/' + id + '.json','utf8')); }\""
+  },
+  "next_command": "$maestro-execute .workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets"
+}

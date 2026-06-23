@@ -1,0 +1,69 @@
+{
+  "id": "TASK-004",
+  "title": "实现 .partial 下载、原子 rename 与 artifact/checksum verification",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P3",
+  "wave": 4,
+  "depends_on": [
+    "TASK-001",
+    "TASK-003"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    "scripts/binary-style-release-lib.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    "scripts/build-binary-release-bundle.mjs",
+    "docs/deployment/binary-style-manifest.example.json",
+    "package.json",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/context.md",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "实现 download 阶段：artifact 写入 shared/staging 下载目录下的 .partial 文件，失败清理，成功后 rename 为最终文件，再用 manifest artifact_sha256、文件名和 detached checksum/sha256 helper 校验；不修改 current symlink。",
+  "implementation": {
+    "steps": [
+      "实现 resolveDownloadTarget，目标路径必须位于 installRoot/shared/staging/<version-or-run-id>/downloads 内，文件名从 manifest artifact_url basename 派生并校验包含 manifest.version 与 linux-x64。",
+      "实现 downloadToPartial：先删除旧 .partial，stream 写入 .partial，任何异常关闭 stream 并 rm .partial，成功后 rename 到最终 artifact 路径。",
+      "支持 --artifact-file 本地 fixture 路径，self-test 使用本地文件复制模拟下载；https 下载使用 Node fetch/Web stream 或 https 内置模块。",
+      "复用 sha256File 和 verifyArtifact 校验 artifact_sha256；如提供 --checksum-file，则解析 .sha256 并确认其中路径 basename 与 artifact 文件一致。",
+      "新增 --self-test download 覆盖成功 rename、checksum mismatch、artifact filename mismatch、失败清理 .partial、重复执行覆盖旧 .partial。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node scripts/local-updater.mjs --self-test download",
+      "node -e \"import('./scripts/local-updater.mjs').then((m)=>{ for (const k of ['downloadArtifact','downloadToPartial','verifyDownloadedArtifact']) { if (typeof m[k] !== 'function') throw new Error(k); } })\"",
+      "rg -n \"\\.partial|rename\\(|artifact_sha256|verifyArtifact|sha256File|checksum\" scripts/local-updater.mjs",
+      "node -e \"const fs=require('fs'); const text=fs.readFileSync('scripts/local-updater.mjs','utf8'); if (/fs\\.symlink|\\bsymlink\\s*\\(|systemctl|db:migrate/i.test(text)) throw new Error('phase 4 behavior found');\"",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "失败路径未清理 .partial 会让下一次执行误用不完整 artifact。",
+    "只校验 detached checksum 而不校验 manifest artifact_sha256，会削弱 release manifest 信任边界。",
+    "从 artifact_url 直接拼路径若不取 basename，可能引入路径穿越。"
+  ],
+  "rollback": [
+    "还原 scripts/local-updater.mjs 中 download/downloadToPartial/verifyDownloadedArtifact 相关改动。",
+    "保留 TASK-003 check/decision 逻辑。",
+    "重新运行 node scripts/local-updater.mjs --self-test check。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T15:29:53+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/discoveries.ndjson;.workflow/scratch/20260622-plan-M1-P3-local-updater-core/.summaries/TASK-004-summary.md",
+    "tests_passed": "true",
+    "findings": "实现 .partial 下载、原子 rename 与 artifact/checksum verification；download self-test、导出检查、Phase 4 禁入检查和 diff check 均通过。",
+    "error": ""
+  }
+}

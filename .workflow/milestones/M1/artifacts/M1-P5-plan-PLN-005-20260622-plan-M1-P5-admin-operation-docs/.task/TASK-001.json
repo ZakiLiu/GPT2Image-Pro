@@ -1,0 +1,71 @@
+{
+  "id": "TASK-001",
+  "title": "让 local updater 脚本随 binary-style bundle 可定位",
+  "type": "feature",
+  "wave": 1,
+  "depends_on": [],
+  "read_first": [
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/binary-style-release-lib.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    "scripts/local-updater.mjs",
+    "docs/deployment/binary-style-deployment.md",
+    "package.json",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md"
+  ],
+  "files_to_modify": [
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/binary-style-release-lib.mjs",
+    "docs/deployment/binary-style-deployment.md"
+  ],
+  "action": "把 M1-P4 的 updater runtime 文件纳入 binary-style release bundle，使生产可配置 UPDATER_SCRIPT_PATH=/opt/gpt2image/current/scripts/local-updater.mjs；同步 verifier requiredBundlePaths 和部署文档。",
+  "implementation": {
+    "steps": [
+      "在 build-binary-release-bundle.mjs 的 assembleBundle 中复制 scripts/local-updater.mjs 与 scripts/binary-style-release-lib.mjs 到 bundle/scripts/。",
+      "在 binary-style-release-lib.mjs requiredBundlePaths 增加 scripts/local-updater.mjs 与 scripts/binary-style-release-lib.mjs。",
+      "确认 denylist 不会误伤 bundle/scripts，且 scripts 不包含 .env、secrets、logs、storage。",
+      "在 docs/deployment/binary-style-deployment.md 的 bundle/runtime 或 M1-P5 段落说明 UPDATER_SCRIPT_PATH 推荐值。",
+      "不新增 updater:apply package script，不改变 local-updater apply/update 行为。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "rg -n \"scripts/local-updater.mjs|scripts/binary-style-release-lib.mjs\" scripts/build-binary-release-bundle.mjs scripts/binary-style-release-lib.mjs docs/deployment/binary-style-deployment.md",
+      "node scripts/verify-binary-release-bundle.mjs --self-test",
+      "node scripts/local-updater.mjs --self-test",
+      "node scripts/local-updater.mjs --self-test apply",
+      "git diff --check -- scripts/build-binary-release-bundle.mjs scripts/binary-style-release-lib.mjs docs/deployment/binary-style-deployment.md"
+    ]
+  },
+  "risks": [
+    "bundle 缺 updater script 会导致后台入口只能依赖手工安装路径。",
+    "把过多 scripts 打进 bundle 可能携带不必要工具或敏感内容。"
+  ],
+  "rollback": [
+    "移除 build-binary-release-bundle.mjs 中 scripts copy。",
+    "移除 binary-style-release-lib.mjs requiredBundlePaths 新增项。",
+    "还原 docs 中 UPDATER_SCRIPT_PATH 推荐说明。"
+  ],
+  "milestone": "M1",
+  "phase": "M1-P5",
+  "status": "completed",
+  "execution_result": {
+    "findings": "已将 local updater 与 binary-style helper 纳入 bundle/scripts 和 requiredBundlePaths，同步生产 UPDATER_SCRIPT_PATH 文档；所有 convergence criteria 与额外 node --check 均通过。",
+    "files_modified": [
+      "scripts/build-binary-release-bundle.mjs",
+      "scripts/binary-style-release-lib.mjs",
+      "docs/deployment/binary-style-deployment.md",
+      ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/.summaries/TASK-001-summary.md",
+      ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/discoveries.ndjson"
+    ],
+    "tests_passed": "true",
+    "error": "",
+    "summary_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/.summaries/TASK-001-summary.md",
+    "completed_at": "2026-06-22T15:53:54.792Z"
+  }
+}

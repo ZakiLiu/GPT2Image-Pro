@@ -49,17 +49,12 @@ rollout-*.jsonl
 .claude/worktrees/
 
 # Maestro local workflow runtime artifacts
+.maestroignore
 .workflow/wiki-index.json
 .workflow/spec-analytics.jsonl
 .workflow/specs/.hit-log.jsonl
 .workflow/.csv-wave/
-.workflow/scratch/*
-!.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/
-!.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json
-!.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/
-!.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.task/*.json
-!.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/
-!.workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/.summaries/*.md
+.workflow/scratch/
 .workflow/archive/
 .workflow/kg/
 .workflow/milestones/M-adhoc-*/

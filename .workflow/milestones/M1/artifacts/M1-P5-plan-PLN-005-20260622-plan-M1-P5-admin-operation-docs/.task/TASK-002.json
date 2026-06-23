@@ -1,0 +1,73 @@
+{
+  "id": "TASK-002",
+  "title": "注册 update.check/status/apply UOL operations",
+  "type": "feature",
+  "wave": 2,
+  "depends_on": [],
+  "read_first": [
+    "packages/shared/src/uol/types.ts",
+    "packages/shared/src/uol/operations/index.ts",
+    "packages/shared/src/uol/operations/system-settings.ts",
+    "packages/shared/src/uol/tests/registry.test.ts",
+    "packages/shared/src/uol/tests/invoke.test.ts",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md"
+  ],
+  "files_to_modify": [
+    "packages/shared/src/uol/types.ts",
+    "packages/shared/src/uol/operations/index.ts",
+    "packages/shared/src/uol/operations/update.ts",
+    "packages/shared/src/uol/tests/update.test.ts"
+  ],
+  "action": "新增 update 领域与 update.check、update.status、update.apply 三个 operation，声明 admin 权限、输入/输出 schema、destructive、sideEffects、processLocalState 和 apply 幂等键。",
+  "implementation": {
+    "steps": [
+      "在 OperationDomain union 增加 \"update\"。",
+      "新增 packages/shared/src/uol/operations/update.ts，定义 updateStatusSchema、updateCheckInputSchema、updateApplyInputSchema 和对应 output schemas。",
+      "update.status: access admin, readOnly true, destructive false, idempotency natural, sideEffects [], processLocalState true。",
+      "update.check: access admin, readOnly true, destructive false, idempotency natural, sideEffects [\"external-call\"], processLocalState true。",
+      "update.apply: access admin, readOnly false, destructive true, idempotency required keyField \"runId\" scope global, sideEffects [\"external-call\",\"audit\"], processLocalState true；input 必含 manifestPath、artifactPath、runId、confirmVersion。",
+      "execute 先保持 Not yet wired stub，由 apps/web/src/server/uol-bindings.ts 后续绑定。",
+      "operations/index.ts 副作用 import ./update。",
+      "新增 update.test.ts 验证三操作注册、metadata、apply 缺 runId 经 invokeOperation 报 validation_error、普通 user 调 update.status 报 forbidden。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "rg -n '\\| \"update\"|update\\.check|update\\.status|update\\.apply|destructive: true|keyField: \"runId\"|processLocalState' packages/shared/src/uol/types.ts packages/shared/src/uol/operations/index.ts packages/shared/src/uol/operations/update.ts packages/shared/src/uol/tests/update.test.ts",
+      "pnpm --filter @repo/shared test -- src/uol/tests/update.test.ts",
+      "pnpm --filter @repo/shared typecheck",
+      "git diff --check -- packages/shared/src/uol/types.ts packages/shared/src/uol/operations/index.ts packages/shared/src/uol/operations/update.ts packages/shared/src/uol/tests/update.test.ts"
+    ]
+  },
+  "risks": [
+    "OperationDomain 未更新会导致 typecheck 失败。",
+    "apply 若没有 required idempotency 会被 agent 或网络重试重复触发。"
+  ],
+  "rollback": [
+    "删除 operations/update.ts 和 tests/update.test.ts。",
+    "还原 OperationDomain 与 operations/index.ts import。"
+  ],
+  "milestone": "M1",
+  "phase": "M1-P5",
+  "status": "completed",
+  "execution_result": {
+    "findings": "已注册 update.status/check/apply UOL operations，声明 admin 权限、processLocalState、apply destructive 与全局 runId 幂等；验证和格式检查通过。",
+    "files_modified": [
+      "packages/shared/src/uol/types.ts",
+      "packages/shared/src/uol/operations/index.ts",
+      "packages/shared/src/uol/operations/update.ts",
+      "packages/shared/src/uol/tests/update.test.ts",
+      ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/discoveries.ndjson",
+      ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/.summaries/TASK-002-summary.md"
+    ],
+    "tests_passed": "true",
+    "error": "",
+    "summary_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/.summaries/TASK-002-summary.md",
+    "completed_at": "2026-06-22T16:17:11.600Z"
+  }
+}

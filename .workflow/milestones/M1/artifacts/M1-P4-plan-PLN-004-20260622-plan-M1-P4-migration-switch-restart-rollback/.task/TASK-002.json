@@ -1,0 +1,67 @@
+{
+  "id": "TASK-002",
+  "title": "安装 staged bundle 到 releases/<version> 并用 .installing 临时目录保护半成品",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P4",
+  "wave": 2,
+  "depends_on": [
+    "TASK-001"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    "docs/deployment/binary-style-deployment.md",
+    "scripts/binary-style-release-lib.mjs",
+    "package.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "实现从已验证 shared/staging/<run-id>/stage 安装到 releases/<version> 的安全路径，先写 releases/.installing-<run-id>，复验后原子 rename。 必须显式处理 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env，并拒绝 PostgreSQL、Nginx、Docker 与 Admin/UOL/UI。",
+  "implementation": {
+    "steps": [
+      "新增 resolveReleasePaths，计算 releases/<version>、releases/.installing-<run-id>、current、shared/staging/<run-id>/stage，所有路径用 resolve、realpath、lstat、readlink 检查在 installRoot 内。",
+      "新增 installStagedRelease，只接受 stageArtifact 返回的 bundleDir；复制或 rename 到 .installing 后再次执行 verifyRequiredPaths、verifyDeniedPaths、verifySha256Sums 和 manifest 校验。",
+      "拒绝 existing non-empty releases/<version>、symlinked release dir、current 指向 installRoot 外、shared/staging 越界和 Windows drive/traversal run-id。",
+      "失败时只清理本次 releases/.installing-<run-id>，保留 current、旧 releases、shared/staging 与 shared/updater.lock。",
+      "边界复核：代码和日志中必须保留 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env 这些显式名词。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node --check scripts/local-updater.mjs",
+      "rg -n \"installStagedRelease|resolveReleasePaths|releases/\\.installing|releases|shared/staging|current|lstat|realpath|readlink|verifySha256Sums\" scripts/local-updater.mjs",
+      "node -e \"const fs=require('fs'); const t=fs.readFileSync('scripts/local-updater.mjs','utf8'); for (const s of ['releases','.installing','shared/staging','current']) if (!t.includes(s)) throw new Error(s);\"",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "未校验 symlink 会导致写入 installRoot 外。",
+    "直接写 releases/<version> 会留下无法区分的半成品 release。",
+    "清理逻辑若不限定 .installing，可能误删 current 或 shared/staging。"
+  ],
+  "rollback": [
+    "移除 installStagedRelease、resolveReleasePaths 和 .installing 相关调用。",
+    "清理测试环境中本次 releases/.installing-<run-id>，保留 current 和既有 releases。",
+    "运行 node scripts/local-updater.mjs --self-test stage。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T22:20:00+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.summaries/TASK-002-summary.md;.workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    "tests_passed": "true",
+    "findings": "实现 resolveReleasePaths/installStagedRelease；apply/update 显式 artifact-file 时从 stageArtifact bundleDir 复制到 releases/.installing-<run-id>，复验后 rename 到 releases/<version>；不切 current/systemctl，失败只清理 .installing。criteria 全通过。",
+    "error": ""
+  }
+}

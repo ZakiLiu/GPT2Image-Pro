@@ -1,0 +1,67 @@
+{
+  "id": "TASK-001",
+  "title": "抽取 binary-style release verification helpers 且保持 verifier 行为不变",
+  "type": "refactor",
+  "milestone": "M1",
+  "phase": "M1-P3",
+  "wave": 1,
+  "depends_on": [],
+  "read_first": [
+    "scripts/binary-style-release-lib.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/verify-binary-deployment-contract.mjs",
+    "package.json",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/context.md",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json"
+  ],
+  "files_to_modify": [
+    "scripts/binary-style-release-lib.mjs",
+    "scripts/verify-binary-release-bundle.mjs"
+  ],
+  "action": "新增 scripts/binary-style-release-lib.mjs 并把 verify-binary-release-bundle.mjs 的通用 helper 改为 import 复用；CLI 参数、输出文本、self-test 场景和校验语义保持不变。",
+  "implementation": {
+    "steps": [
+      "从 verify-binary-release-bundle.mjs 提取 assert、assertObject、pathExists、listFiles、sha256File、readJson、verifySchemaBaseline、verifyManifest、verifyRequiredPaths、verifyDeniedPaths、verifySha256Sums、verifyArtifact、verifyBundle 与常量。",
+      "在新 lib 文件保留文件级中文注释和每个导出函数的中文 JSDoc，使用 ESM named exports，不引入第三方依赖。",
+      "将 verify-binary-release-bundle.mjs 改为导入 lib helper，保留 parseArgs、readStringArg、fixture/self-test 和 main().catch。",
+      "确认 requiredBundlePaths、deniedRootSegments、deniedPathFragments 和 linux-x64 语义与原 verifier 一致，不扩大或缩小 M1-P2 校验范围。",
+      "运行 verifier self-test 和 import smoke，修复因抽取导致的路径解析或 rootDir 漂移。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node -e \"import('./scripts/binary-style-release-lib.mjs').then((m)=>{ for (const k of ['sha256File','verifyManifest','verifyArtifact','verifyRequiredPaths','verifySha256Sums','verifyBundle','assertObject','pathExists','listFiles']) { if (typeof m[k] !== 'function') throw new Error(k); } })\"",
+      "node scripts/verify-binary-release-bundle.mjs --self-test",
+      "rg -n \"from \\\"./binary-style-release-lib.mjs\\\"|from './binary-style-release-lib.mjs'\" scripts/verify-binary-release-bundle.mjs",
+      "rg -n \"export async function sha256File|export function verifyManifest|export async function verifyBundle\" scripts/binary-style-release-lib.mjs",
+      "git diff --check -- scripts/binary-style-release-lib.mjs scripts/verify-binary-release-bundle.mjs"
+    ]
+  },
+  "risks": [
+    "抽取 helper 时 rootDir 从 verifier 文件迁移到 lib 文件后路径解析可能变化。",
+    "verifyManifest 或 denied path 常量如果误删，会弱化 M1-P2 release artifact 校验。",
+    "把 CLI fixture 逻辑也抽走可能让 verifier 行为变大，不符合无行为变更目标。"
+  ],
+  "rollback": [
+    "删除 scripts/binary-style-release-lib.mjs。",
+    "还原 scripts/verify-binary-release-bundle.mjs 中 import 改动和原内联 helper。",
+    "重新运行 node scripts/verify-binary-release-bundle.mjs --self-test 确认回退后 verifier 可用。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T15:29:53+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+    "result": "completed",
+    "files_modified": "scripts/binary-style-release-lib.mjs;scripts/verify-binary-release-bundle.mjs",
+    "tests_passed": "true",
+    "findings": "已抽取 binary-style release 校验 helper 到新 lib，verifier 只保留 CLI/self-test；import smoke、self-test、import grep、export grep、diff check 均通过。",
+    "error": ""
+  }
+}

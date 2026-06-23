@@ -1,0 +1,59 @@
+{
+  "id": "TASK-005",
+  "title": "在后台状态页接入在线更新面板",
+  "type": "feature",
+  "wave": 5,
+  "depends_on": [
+    "TASK-004"
+  ],
+  "read_first": [
+    "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/page.tsx",
+    "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/refresh-status-button.tsx",
+    "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-actions.ts",
+    "apps/web/src/features/dashboard/components/sidebar.tsx",
+    "packages/shared/src/auth/roles.ts",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md"
+  ],
+  "files_to_modify": [
+    "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/page.tsx",
+    "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-status-card.tsx"
+  ],
+  "action": "在现有 admin status 页面增加 UpdateStatusCard：展示 updater enabled/configured/current/status/check 结果；apply 需要 typed confirmation 且只对 admin/super_admin 显示。",
+  "implementation": {
+    "steps": [
+      "新增 update-status-card.tsx client component，使用 useAction 调用 get/check/apply actions，toast 展示错误，成功后 router.refresh 或本地更新状态。",
+      "UI 字段只展示 redacted summary：enabled、configured、disabledReason、currentVersion、availableVersion、decision、lastRunId、rollbackStatus、healthcheckStatus。",
+      "Apply 表单字段固定为 manifestPath、artifactPath、runId、confirmVersion；按钮文案明确 DB migration 不自动 rollback。",
+      "page.tsx 根据 role 仅对 canAccessAdminArea(role) 渲染更新面板；observer_admin 保持原 status 页面可看但不显示 apply。",
+      "不新增 sidebar 项；复用 /dashboard/admin/status。",
+      "不得在组件中出现 DATABASE_URL、BETTER_AUTH_SECRET、CHATGPT_WEB_PROXY_SECRET 或 env 文件内容。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "rg -n \"UpdateStatusCard|checkAdminUpdateAction|applyAdminUpdateAction|getAdminUpdateStatusAction|confirmVersion|rollback|DB migration\" \"apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/page.tsx\" \"apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-status-card.tsx\"",
+      "node -e \"const fs=require('fs'); const s=fs.readFileSync('apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-status-card.tsx','utf8'); if(/DATABASE_URL|BETTER_AUTH_SECRET|CHATGPT_WEB_PROXY_SECRET/.test(s)) throw new Error('secret token in UI');\"",
+      "pnpm --filter @repo/web typecheck",
+      "pnpm --filter @repo/web lint",
+      "git diff --check -- \"apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/page.tsx\" \"apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-status-card.tsx\""
+    ]
+  },
+  "risks": [
+    "管理员误触 apply。",
+    "UI 展示 raw stderr/stdout 可能泄密。",
+    "observer_admin 看到 destructive 控件会越权。"
+  ],
+  "rollback": [
+    "从 page.tsx 移除 UpdateStatusCard 引用。",
+    "删除 update-status-card.tsx。"
+  ],
+  "milestone": "M1",
+  "phase": "M1-P5",
+  "status": "completed",
+  "completed_at": "2026-06-22T17:04:51.918Z"
+}

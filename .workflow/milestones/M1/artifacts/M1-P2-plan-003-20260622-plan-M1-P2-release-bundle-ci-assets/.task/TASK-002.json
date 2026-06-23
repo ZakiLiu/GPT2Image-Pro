@@ -1,0 +1,91 @@
+{
+  "id": "TASK-002",
+  "title": "新增 bundle 校验脚本与负向检查",
+  "type": "test",
+  "milestone": "M1",
+  "phase": "M1-P2",
+  "wave": 2,
+  "depends_on": [
+    "TASK-001"
+  ],
+  "read_first": [
+    "scripts/verify-binary-release-bundle.mjs",
+    "package.json",
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/verify-binary-deployment-contract.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/verify-binary-release-bundle.mjs",
+    "package.json"
+  ],
+  "action": "创建 release bundle 校验脚本，并在 package.json 增加 verify:binary-bundle。脚本检查 manifest schema、artifact_sha256、platform linux-x64、必需文件清单、SHA256SUMS、禁止敏感文件与运行态目录；同时提供 --self-test 负向检查。",
+  "implementation": {
+    "steps": [
+      "在 scripts/verify-binary-release-bundle.mjs 添加文件级注释，说明脚本只验证 M1-P2 artifact，不执行下载、安装、迁移、切换或重启。",
+      "定义 CLI 参数：--bundle-dir、--manifest、--artifact、--platform=linux-x64、--self-test；缺少 bundle-dir/manifest 时失败退出。",
+      "复用 docs/deployment/binary-style-manifest.schema.json 的 required 字段和 pattern 语义，使用 Node 内置能力实现轻量 schema 检查，不引入新依赖。",
+      "校验 manifest.platform 必须为 linux-x64，manifest.artifact_sha256 必须为 64 位十六进制；传入 --artifact 时必须与实际 sha256 一致。",
+      "校验 bundle 必需文件：apps/web/.next/standalone/apps/web/server.js、apps/web/.next/static、apps/web/public、migrator/packages/database/drizzle、migrator/packages/database/drizzle.config.ts、bin/chatgpt-web-proxy、deploy/systemd/gpt2image-web.service.example、manifest.json、SHA256SUMS。",
+      "解析 SHA256SUMS，逐项计算 bundle 内文件 checksum；缺失、重复、格式非法或 hash 不匹配时失败。",
+      "递归扫描 bundle 文件名和目录名，发现 .env、.env.local、.env.production、storage、.gpt2image、secrets、logs、*.pem、*.key 时失败。",
+      "实现 --self-test：在临时目录构造平台不匹配、artifact_sha256 不匹配、缺失必需文件、包含 .env 四类负向样例，并断言校验器返回失败。",
+      "在 package.json scripts 增加 verify:binary-bundle，命令为 node scripts/verify-binary-release-bundle.mjs。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "file_exists",
+        "check": "Test-Path scripts/verify-binary-release-bundle.mjs"
+      },
+      {
+        "type": "package_script",
+        "check": "node -e \"const p=require('./package.json'); if(!p.scripts['verify:binary-bundle']?.includes('scripts/verify-binary-release-bundle.mjs')) process.exit(1);\""
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"binary-style-manifest.schema.json|artifact_sha256|linux-x64|SHA256SUMS|sha256|bundle-dir|artifact\" scripts/verify-binary-release-bundle.mjs"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"self-test|platform|mismatch|missing|required|\\.env|storage|\\.gpt2image|secrets|logs\" scripts/verify-binary-release-bundle.mjs"
+      },
+      {
+        "type": "command",
+        "check": "node scripts/verify-binary-release-bundle.mjs --self-test"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- scripts/verify-binary-release-bundle.mjs package.json"
+      }
+    ]
+  },
+  "risks": [
+    "手写 schema 校验可能低于 JSON Schema 完整语义；本阶段至少覆盖 required、platform、sha256、services、healthcheck 等强约束。",
+    "负向测试若只检查字符串而不实际执行失败路径，会产生假绿灯；--self-test 必须运行临时样例并断言失败。"
+  ],
+  "rollback": [
+    "删除 scripts/verify-binary-release-bundle.mjs。",
+    "从 package.json scripts 移除 verify:binary-bundle。",
+    "删除 --self-test 产生的临时目录。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T12:19:57+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+    "result": "completed",
+    "files_modified": "scripts/verify-binary-release-bundle.mjs;package.json",
+    "tests_passed": "true",
+    "findings": "新增 bundle 校验脚本和 verify:binary-bundle，覆盖 manifest、artifact sha256、必需文件、SHA256SUMS、敏感路径与 self-test。"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "id": "TASK-004",
+  "title": "原子切换 current symlink 并仅重启白名单 systemd 服务",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P4",
+  "wave": 4,
+  "depends_on": [
+    "TASK-003"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    "docs/deployment/binary-style-deployment.md",
+    "scripts/binary-style-release-lib.mjs",
+    "package.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "在 migrator 成功后实现 current 原子 symlink 切换，并只重启 gpt2image-web.service 与 gpt2image-chatgpt-web-proxy.service。 必须显式处理 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env，并拒绝 PostgreSQL、Nginx、Docker 与 Admin/UOL/UI。",
+  "implementation": {
+    "steps": [
+      "实现 capturePreviousCurrent，切换前读取 current symlink 目标和上一版 manifest，确认 previous_current 在 installRoot/releases 内。",
+      "实现 switchCurrentSymlink，先创建 current.next 或 current.tmp 指向 releases/<version>，再用 rename 原子替换 current，拒绝 absolute/traversal/symlink escape。",
+      "实现 assertAllowedSystemdUnits 与 restartWhitelistedServices，hard-coded whitelist 仅允许 gpt2image-web.service 和 gpt2image-chatgpt-web-proxy.service。",
+      "systemctl runner 可注入，命令形态限制为 systemctl restart <whitelisted unit>；manifest 出现 postgresql、nginx、docker 或其他 unit 时失败。",
+      "apply.json 记录 previous_current、current_target、switched_at、restarted_units，shared/updater.lock 在 healthcheck/rollback 后释放。",
+      "边界复核：代码和日志中必须保留 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env 这些显式名词。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node --check scripts/local-updater.mjs",
+      "rg -n \"capturePreviousCurrent|switchCurrentSymlink|current\\.tmp|current\\.next|restartWhitelistedServices|assertAllowedSystemdUnits|gpt2image-web\\.service|gpt2image-chatgpt-web-proxy\\.service|systemctl\" scripts/local-updater.mjs",
+      "node -e \"const fs=require('fs'); const t=fs.readFileSync('scripts/local-updater.mjs','utf8'); if(!t.includes('gpt2image-web.service')||!t.includes('gpt2image-chatgpt-web-proxy.service')) throw new Error('missing whitelist'); if(/systemctl[^\\n]*(postgres|nginx|docker)/i.test(t)) throw new Error('broad systemd target');\"",
+      "rg -n \"current|releases|shared/staging|shared/updater\\.lock|/etc/gpt2image/gpt2image\\.env\" scripts/local-updater.mjs",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "非原子 symlink 替换可能让服务读到不存在的 current。",
+    "信任 manifest unit 会重启同机其他服务。",
+    "切换后但 healthcheck 前失败，需要 TASK-005 journal rollback 承接。"
+  ],
+  "rollback": [
+    "移除 switchCurrentSymlink、restartWhitelistedServices 和相关调用。",
+    "在测试机按 apply.json previous_current 手动 ln -sfn releases/<previous> current。",
+    "只重启 gpt2image-web.service 与 gpt2image-chatgpt-web-proxy.service。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T22:20:00+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.summaries/TASK-004-summary.md;.workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    "tests_passed": "true",
+    "findings": "实现 capturePreviousCurrent/switchCurrentSymlink/restartWhitelistedServices；current.next 切到候选 release 后仅重启 gpt2image-web.service 与 gpt2image-chatgpt-web-proxy.service。criteria 与注入 runner smoke 均通过。",
+    "error": ""
+  }
+}

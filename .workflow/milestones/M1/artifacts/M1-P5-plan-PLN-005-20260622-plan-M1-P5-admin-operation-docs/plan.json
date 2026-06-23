@@ -1,0 +1,238 @@
+{
+  "id": "PLN-M1-P5-admin-operation-docs",
+  "title": "M1-P5：Admin Operation、后台入口与文档收口执行计划",
+  "scope": "phase",
+  "milestone": "M1",
+  "phase": "M1-P5",
+  "phase_name": "Admin Operation、后台入口与文档收口",
+  "created_at": "2026-06-22T23:10:00+08:00",
+  "source": {
+    "roadmap": ".workflow/roadmap.md",
+    "session": ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs",
+    "context": ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/context.md",
+    "wave_1_findings": ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/prev_context.md",
+    "discoveries": ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/discoveries.ndjson",
+    "prior_plan": ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+    "prior_execution": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md",
+    "local_updater": "scripts/local-updater.mjs",
+    "release_bundle_builder": "scripts/build-binary-release-bundle.mjs",
+    "release_helper": "scripts/binary-style-release-lib.mjs",
+    "uol_registry": "packages/shared/src/uol",
+    "admin_status_page": "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/page.tsx"
+  },
+  "summary": "在 M1-P4 本地 updater apply/update 已验证后，接入默认关闭的管理员在线更新入口：先让 updater 脚本随 binary-style bundle 可定位，再注册 update.check/update.status/update.apply UOL operations，绑定到无 shell 的本地 updater wrapper，通过 adminAction 薄传输和后台状态页 UI 暴露，并补齐 README、CI/CD 与部署 runbook。",
+  "approach": [
+    "保持 UOL-first：packages/shared 只放 update operation schema、权限、幂等、副作用和 stub；apps/web 绑定真实执行体。",
+    "远程执行默认关闭：UPDATER_ENABLED 未显式开启时 check/status 只返回 disabled，apply 必须失败。",
+    "本地 updater wrapper 使用 spawn/execFile 类无 shell 调用，只允许 node + scripts/local-updater.mjs 的 check/status/apply/update 受控 argv，不接受请求体里的任意命令、service、env-file 或 updater path。",
+    "update.apply 是 destructive operation，输入必须包含 confirmVersion、runId、manifestPath、artifactPath；server action 走 adminAction，UI 再做 typed confirmation。",
+    "管理后台入口先放在现有 /dashboard/admin/status 页面，避免新增复杂导航；observer_admin 不显示 apply 控件。",
+    "MCP admin 通过既有 tool-factory 自动暴露已绑定 admin operation；文档要求生产可用 MCP_READ_ONLY 或 MCP_DENIED_OPS=update.apply 禁止远程 agent 执行。",
+    "最终门禁覆盖 UOL 测试、wrapper 测试、local-updater self-test/apply、binary contract、lint/test/typecheck 和文档 grep。"
+  ],
+  "non_goals": [
+    "不实现多实例滚动发布、蓝绿发布、Kubernetes 或 Windows/macOS updater。",
+    "不绕过 UOL gateway 从 UI 或 route 直接执行 scripts/local-updater.mjs。",
+    "不允许用户输入 arbitrary shell command、systemd unit、env-file 路径或 install-root 覆盖生产配置。",
+    "不管理 PostgreSQL、Nginx、Docker 或任何非 gpt2image-web.service/gpt2image-chatgpt-web-proxy.service 服务。",
+    "不承诺数据库 migration 自动 rollback。",
+    "不修改 image generation、credits、storage、moderation、payment、subscription、auth、API Key 核心业务路径。"
+  ],
+  "task_ids": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006",
+    "TASK-007"
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "bundle updater availability",
+      "tasks": [
+        "TASK-001"
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "UOL update operations",
+      "tasks": [
+        "TASK-002"
+      ]
+    },
+    {
+      "wave": 3,
+      "label": "web updater wrapper and bindings",
+      "tasks": [
+        "TASK-003"
+      ]
+    },
+    {
+      "wave": 4,
+      "label": "thin admin transport",
+      "tasks": [
+        "TASK-004"
+      ]
+    },
+    {
+      "wave": 5,
+      "label": "admin status UI entry",
+      "tasks": [
+        "TASK-005"
+      ]
+    },
+    {
+      "wave": 6,
+      "label": "MCP and guardrail verification",
+      "tasks": [
+        "TASK-006"
+      ]
+    },
+    {
+      "wave": 7,
+      "label": "docs and final gates",
+      "tasks": [
+        "TASK-007"
+      ]
+    }
+  ],
+  "dependencies": {
+    "TASK-001": [],
+    "TASK-002": [],
+    "TASK-003": [
+      "TASK-001",
+      "TASK-002"
+    ],
+    "TASK-004": [
+      "TASK-002",
+      "TASK-003"
+    ],
+    "TASK-005": [
+      "TASK-004"
+    ],
+    "TASK-006": [
+      "TASK-002",
+      "TASK-003",
+      "TASK-004"
+    ],
+    "TASK-007": [
+      "TASK-001",
+      "TASK-002",
+      "TASK-003",
+      "TASK-004",
+      "TASK-005",
+      "TASK-006"
+    ]
+  },
+  "readiness_gate": {
+    "status": "passed",
+    "checks": [
+      "已读取 roadmap、state/index、M1-P4 plan/execution、local-updater、bundle builder/verifier、UOL registry/invoke/types、uol-bindings、MCP admin route/tool-factory、admin status page/actions、README、docs/CI-CD、deployment docs。",
+      "M1-P4 已提交 91f244f，local updater apply/update/rollback 自测通过，Admin/UOL/UI 边界已留给 M1-P5。",
+      "当前 git 状态只有 .maestroignore 未跟踪；计划生成不触碰该文件。",
+      "M1-P5 的必要缺口已识别：binary-style bundle 当前未包含 scripts/local-updater.mjs，后台入口必须先解决 updater path 可用性或显式配置。"
+    ]
+  },
+  "confidence": {
+    "overall": 0.82,
+    "factor_model": "五维等权：context_coverage、scope_clarity、implementation_path、verification_strength、operational_safety。",
+    "factors": {
+      "context_coverage": {
+        "score": 0.9,
+        "evidence": "关键代码路径、历史 phase 和 docs 均已读取。"
+      },
+      "scope_clarity": {
+        "score": 0.86,
+        "evidence": "roadmap 明确 Phase 5 只接 Admin/UOL/UI/docs，Phase 4 已完成本地 updater。"
+      },
+      "implementation_path": {
+        "score": 0.78,
+        "evidence": "UOL late binding、adminAction、MCP tool factory 和 local-updater CLI 已有可复用模式。"
+      },
+      "verification_strength": {
+        "score": 0.82,
+        "evidence": "任务均包含 rg/node/pnpm 可执行 criteria，覆盖 shared/web/unit/docs gates。"
+      },
+      "operational_safety": {
+        "score": 0.74,
+        "evidence": "远程更新是高风险 destructive path，计划以默认关闭、无 shell、固定 argv、typed confirmation、redaction 和 MCP deny/read-only 缓解。"
+      }
+    },
+    "notes": "剩余不确定性集中在生产目标机 updater path、GitHub Release manifest URL 配置、管理员误触与 migration 不可逆。"
+  },
+  "pressure_pass": {
+    "highest_complexity_task": "TASK-003",
+    "reason": "Web updater wrapper 是远程后台入口到本地 mutating updater 的安全边界。",
+    "concerns": [
+      "child_process 若使用 shell 或拼接字符串会形成命令注入。",
+      "请求体若能覆盖 updater path/env-file/install-root，会绕过运维配置边界。",
+      "stdout/stderr/apply.json 若未脱敏会把 DATABASE_URL 或 Authorization 泄露到 UI。",
+      "UPDATER_ENABLED 默认值若误开，会使后台 apply 过早可用。",
+      "apply 超时或非零退出需要可审计错误，而不能吞异常。"
+    ],
+    "mitigations": [
+      "wrapper runner 使用 argv 数组且 shell=false；测试断言 command/args 精确。",
+      "UPDATER_SCRIPT_PATH、UPDATER_INSTALL_ROOT、UPDATER_ENV_FILE 只从服务端 env 读取，不接受客户端覆盖。",
+      "复用并扩展 redaction helper；测试覆盖 postgres URL、Authorization、Cookie、BETTER_AUTH_SECRET。",
+      "默认 disabled；status 输出 disabledReason；apply disabled 时返回 OperationError/ActionUserError。",
+      "非零退出和 JSON parse failure 映射为结构化失败状态并保留 redacted stderr。"
+    ],
+    "verdict": "可执行，但 TASK-003 必须先有 wrapper 单测，再允许 TASK-004/TASK-005 接入。"
+  },
+  "collision_detection": {
+    "status": "passed",
+    "checked": [
+      "git status --short --branch",
+      "state.json artifacts 中无 M1-P5 plan",
+      "scratch 目录新建为 .workflow/scratch/20260622-plan-M1-P5-admin-operation-docs"
+    ],
+    "same_phase_plan_found": false,
+    "shared_source_files_serialized": [
+      "scripts/build-binary-release-bundle.mjs",
+      "scripts/binary-style-release-lib.mjs",
+      "scripts/local-updater.mjs",
+      "packages/shared/src/uol/types.ts",
+      "packages/shared/src/uol/operations/index.ts",
+      "apps/web/src/server/uol-bindings.ts",
+      "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/page.tsx",
+      "docs/deployment/binary-style-deployment.md",
+      "docs/CI-CD.md",
+      "README.md"
+    ],
+    "notes": "执行阶段按 wave 串行推进，避免同文件并发编辑。"
+  },
+  "verification": {
+    "plan_artifacts": [
+      ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/plan.json",
+      ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/.task/TASK-001.json",
+      ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/.task/TASK-002.json",
+      ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/.task/TASK-003.json",
+      ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/.task/TASK-004.json",
+      ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/.task/TASK-005.json",
+      ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/.task/TASK-006.json",
+      ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/.task/TASK-007.json"
+    ],
+    "artifact_validation": "node -e \"const fs=require('fs'); const base='.workflow/scratch/20260622-plan-M1-P5-admin-operation-docs'; JSON.parse(fs.readFileSync(base+'/plan.json','utf8')); for(let i=1;i<=7;i++){const id='TASK-'+String(i).padStart(3,'0'); const t=JSON.parse(fs.readFileSync(base+'/.task/'+id+'.json','utf8')); if(!Array.isArray(t.read_first)||!t.convergence||!Array.isArray(t.convergence.criteria)||t.convergence.criteria.length===0) throw new Error(id);}\"",
+    "expected_execution_gates": [
+      "node --check scripts/local-updater.mjs",
+      "node scripts/local-updater.mjs --self-test",
+      "node scripts/local-updater.mjs --self-test apply",
+      "node scripts/verify-binary-release-bundle.mjs --self-test",
+      "pnpm verify:binary-contract",
+      "pnpm --filter @repo/shared test -- src/uol/tests/update.test.ts",
+      "pnpm --filter @repo/web test -- src/server/updater-admin.test.ts",
+      "pnpm lint",
+      "pnpm test",
+      "pnpm typecheck",
+      "git diff --check"
+    ],
+    "grep_boundary_checks": [
+      "rg -n \"update.check|update.status|update.apply|UPDATER_ENABLED|UPDATER_SCRIPT_PATH|UPDATER_INSTALL_ROOT|UPDATER_ENV_FILE\" packages/shared/src/uol apps/web/src/server apps/web/src/app docs README.md",
+      "rg -n \"spawn(|execFile(|shell:s*false|local-updater.mjs|redact|DATABASE_URL|Authorization|Cookie\" apps/web/src/server/updater-admin.ts apps/web/src/server/updater-admin.test.ts",
+      "rg -n \"MCP_READ_ONLY|MCP_DENIED_OPS|update.apply|destructive\" docs/deployment/binary-style-deployment.md docs/CI-CD.md README.md packages/shared/src/uol/operations/update.ts"
+    ]
+  },
+  "next_command": "$maestro-execute .workflow/scratch/20260622-plan-M1-P5-admin-operation-docs"
+}

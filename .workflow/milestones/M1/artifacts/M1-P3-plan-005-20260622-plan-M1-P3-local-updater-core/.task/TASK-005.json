@@ -1,0 +1,69 @@
+{
+  "id": "TASK-005",
+  "title": "实现 lock 与 shared/staging 解包预检边界",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P3",
+  "wave": 5,
+  "depends_on": [
+    "TASK-001",
+    "TASK-004"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    "scripts/binary-style-release-lib.mjs",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json",
+    "package.json",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/context.md"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "实现 updater lock、stage 到 installRoot/shared/staging/<version-or-run-id>、archive path traversal 防御、required files 与 env preflight；明确不执行 systemd、migration、restart、healthcheck 或 current mutation。",
+  "implementation": {
+    "steps": [
+      "实现 acquireUpdateLock/releaseUpdateLock，使用 shared/updater.lock 的 mkdir 或 open wx 原子语义，并记录 pid/time metadata；第二次加锁必须失败。",
+      "实现 normalizeInstallRoot 与 assertInsideInstallRoot，所有 staging、downloads、extract 和 cleanup 路径都必须 realpath/resolve 后位于 installRoot/shared/staging/<run-id>。",
+      "实现 extractArchiveToStaging，tar.gz 可调用 tar 命令前先验证目标目录，zip 只支持 store/deflate 安全路径或明确失败；每个 entry 拒绝 ../、绝对路径和 drive prefix。",
+      "stage 后复用 verifyRequiredPaths、verifyDeniedPaths、verifySha256Sums 和内部 manifest 校验，确认 bundle 必需文件存在。",
+      "实现 preflightRuntimeEnv，只检查 /etc/gpt2image/gpt2image.env 或 --env-file 是否存在、可读，以及调用方提供的 required env names 集合；不读取、不打印变量值。",
+      "新增 --self-test stage 覆盖 lock 并发、staging path traversal、cleanup 只删本次目录、缺 required file、缺 env file 和 Phase 4 禁入。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node scripts/local-updater.mjs --self-test stage",
+      "node -e \"import('./scripts/local-updater.mjs').then((m)=>{ for (const k of ['acquireUpdateLock','stageArtifact','assertInsideInstallRoot','preflightRuntimeEnv']) { if (typeof m[k] !== 'function') throw new Error(k); } })\"",
+      "rg -n \"shared/staging|updater\\.lock|assertInsideInstallRoot|path traversal|DATABASE_URL|BETTER_AUTH_SECRET\" scripts/local-updater.mjs",
+      "node -e \"const fs=require('fs'); const text=fs.readFileSync('scripts/local-updater.mjs','utf8'); if (/spawn(?:Sync)?\\([^)]*(systemctl|db:migrate)|execFile(?:Sync)?\\([^)]*(systemctl|db:migrate)|fs\\.symlink|\\bsymlink\\s*\\(/i.test(text)) throw new Error('phase 4 action found');\"",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "archive 解包最容易发生路径穿越，必须逐 entry 检查。",
+    "cleanup 若用递归删除但没有 assertInside，会造成高破坏性风险。",
+    "env preflight 若读取内容并输出，会泄露 secrets。",
+    "lock stale 处理过于激进可能误删正在运行的锁。"
+  ],
+  "rollback": [
+    "还原 scripts/local-updater.mjs 中 lock、stage、extract、preflight 相关改动。",
+    "删除 self-test 生成的临时 staging fixture。",
+    "重新运行 node scripts/local-updater.mjs --self-test download，确认下载校验仍可用。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T15:29:53+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/discoveries.ndjson;.workflow/scratch/20260622-plan-M1-P3-local-updater-core/.summaries/TASK-005-summary.md",
+    "tests_passed": "true",
+    "findings": "实现 updater lock 与 shared/staging stage 边界；stage self-test、导出检查、path traversal/env/Phase 4 禁入和 diff check 均通过。",
+    "error": ""
+  }
+}

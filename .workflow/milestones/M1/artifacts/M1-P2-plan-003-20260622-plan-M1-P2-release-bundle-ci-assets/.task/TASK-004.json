@@ -1,0 +1,95 @@
+{
+  "id": "TASK-004",
+  "title": "更新 docker-release.yml 产出 binary-style release assets",
+  "type": "ci",
+  "milestone": "M1",
+  "phase": "M1-P2",
+  "wave": 4,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003"
+  ],
+  "read_first": [
+    ".github/workflows/docker-release.yml",
+    ".github/workflows/ci.yml",
+    "package.json",
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    "scripts/verify-binary-deployment-contract.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json",
+    "Dockerfile.web",
+    "Dockerfile.chatgpt-web-proxy",
+    "docker-compose.yml",
+    "apps/web/next.config.mjs",
+    "services/chatgpt-web-proxy/go.mod",
+    "services/chatgpt-web-proxy/go.sum",
+    "packages/database/package.json"
+  ],
+  "files_to_modify": [
+    ".github/workflows/docker-release.yml"
+  ],
+  "action": "在现有 tag release workflow 上增量增加 binary-style assets 构建与上传：继续构建 GHCR 三镜像和 compose tar/zip，同时产出 binary tar.gz、zip、sha256、manifest.json，并执行 bundle verify。",
+  "implementation": {
+    "steps": [
+      "保留现有 docker job matrix、GHCR 登录、docker/metadata-action、docker/build-push-action 和 compose bundle 步骤，不替换 Docker/GHCR/compose release。",
+      "在 tag-only release 路径中增加 Node 22/pnpm setup，复用项目已有 .github/actions/setup 或等价步骤安装 pnpm frozen-lockfile。",
+      "增加 Go setup，版本与 services/chatgpt-web-proxy/go.mod 的 toolchain/go 1.24.x 对齐。",
+      "在 binary asset job 中执行 pnpm verify:binary-contract，确认 M1-P1 契约仍有效。",
+      "执行 pnpm build:web，生成 apps/web/.next/standalone、static 和 public。",
+      "在 services/chatgpt-web-proxy 执行 go test ./...。",
+      "执行 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags=\"-s -w\" -o ../../dist/binary-style/build/chatgpt-web-proxy .。",
+      "执行 pnpm build:binary-bundle -- --version ${GITHUB_REF_NAME} --commit ${GITHUB_SHA} --proxy-binary dist/binary-style/build/chatgpt-web-proxy，生成 tar.gz、zip、sha256、manifest.json 和 SHA256SUMS。",
+      "执行 pnpm verify:binary-bundle，对 bundle 目录、tar.gz、manifest 和 SHA256SUMS 做校验。",
+      "更新 softprops/action-gh-release files，保留 compose tar/zip，并追加 gpt2image-pro-${{ github.ref_name }}-linux-x64.tar.gz、.zip、.tar.gz.sha256、.zip.sha256、manifest.json、SHA256SUMS。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "grep",
+        "check": "rg -n \"docker/build-push-action|gpt2image-pro-web|gpt2image-pro-migrate|gpt2image-pro-chatgpt-web-proxy|compose.tar.gz|compose.zip\" .github/workflows/docker-release.yml"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"setup-go|go test ./...|GOOS=linux|GOARCH=amd64|CGO_ENABLED=0|go build\" .github/workflows/docker-release.yml"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"pnpm verify:binary-contract|pnpm build:web|build:binary-bundle|verify:binary-bundle\" .github/workflows/docker-release.yml"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"gpt2image-pro-.*linux-x64.*tar.gz|gpt2image-pro-.*linux-x64.*zip|manifest.json|SHA256SUMS|sha256\" .github/workflows/docker-release.yml"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- .github/workflows/docker-release.yml"
+      }
+    ]
+  },
+  "risks": [
+    "release workflow 容易破坏现有 GHCR 和 compose 发布；本任务必须只追加 binary assets job/steps，不删除现有 docker job 或 compose files。",
+    "Go toolchain 版本若与 go.mod/toolchain 不一致，会在 CI 中失败；应明确 setup-go 版本或启用 toolchain。",
+    "GitHub Release 上传 manifest 的 artifact_url 可能在 draft 阶段无法提前知道；脚本和文档必须允许 CI 使用最终 release asset 文件名和 checksum 作为校验源。"
+  ],
+  "rollback": [
+    "从 .github/workflows/docker-release.yml 删除新增 binary asset 构建、校验和上传步骤。",
+    "保留原 docker matrix 和 compose release 步骤，使 tag 发布恢复到 M1-P1 前状态。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T12:19:57+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+    "result": "completed",
+    "files_modified": ".github/workflows/docker-release.yml",
+    "tests_passed": "true",
+    "findings": "docker-release.yml 保留 GHCR 三镜像与 compose 包，追加 Node/Go setup、contract/web/proxy/bundle verify 和 binary assets 上传。"
+  }
+}

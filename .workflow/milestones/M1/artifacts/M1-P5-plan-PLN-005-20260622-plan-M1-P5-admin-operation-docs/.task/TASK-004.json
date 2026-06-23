@@ -1,0 +1,58 @@
+{
+  "id": "TASK-004",
+  "title": "新增 thin admin server actions 调用 invokeOperation",
+  "type": "feature",
+  "wave": 4,
+  "depends_on": [
+    "TASK-002",
+    "TASK-003"
+  ],
+  "read_first": [
+    "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/actions.ts",
+    "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/refresh-status-button.tsx",
+    "packages/shared/src/safe-action.ts",
+    "packages/shared/src/auth/roles.ts",
+    "apps/web/src/server/uol-init.ts",
+    "packages/shared/src/uol/invoke.ts",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md"
+  ],
+  "files_to_modify": [
+    "apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-actions.ts"
+  ],
+  "action": "在 admin status 路由下新增 update server actions，传输层只负责 adminAction 鉴权、ensureUolInitialized、构造 Principal 并 invokeOperation。",
+  "implementation": {
+    "steps": [
+      "新增 update-actions.ts，使用 \"use server\"、adminAction.metadata({ action: \"adminUpdate.<name>\" })。",
+      "实现 getAdminUpdateStatusAction、checkAdminUpdateAction、applyAdminUpdateAction。",
+      "每个 action 从 ctx.userId/ctx.role 构造 Principal { type:\"user\", userId, role }，await ensureUolInitialized() 后调用 invokeOperation。",
+      "action input schema 复用或镜像 update operation schema；apply 输入包含 manifestPath、artifactPath、runId、confirmVersion。",
+      "不得 import child_process、scripts/local-updater.mjs 或 updater-admin wrapper；只调 UOL gateway。",
+      "必要时将 OperationError 映射为 ActionUserError，避免 UI 只看到通用 server error。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "rg -n 'adminUpdate\\.status|adminUpdate\\.check|adminUpdate\\.apply|ensureUolInitialized|invokeOperation|update\\.status|update\\.check|update\\.apply|ActionUserError' 'apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-actions.ts'",
+      "node -e \"const fs=require('fs'); const p='apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-actions.ts'; const s=fs.readFileSync(p,'utf8'); if(/child_process|local-updater\\.mjs|spawn\\(|execFile\\(/.test(s)) throw new Error('transport is not thin');\"",
+      "pnpm --filter @repo/web typecheck",
+      "git diff --check -- \"apps/web/src/app/[locale]/(dashboard)/dashboard/admin/status/update-actions.ts\""
+    ]
+  },
+  "risks": [
+    "server action 若绕过 invokeOperation，会分散权限和审计边界。",
+    "直接 import wrapper 会让传输层变厚，后续 MCP/API route 无法复用。"
+  ],
+  "rollback": [
+    "删除 update-actions.ts。",
+    "确认 UI 未引用该文件。"
+  ],
+  "milestone": "M1",
+  "phase": "M1-P5",
+  "status": "completed",
+  "completed_at": "2026-06-22T16:57:53.740Z"
+}

@@ -1,0 +1,92 @@
+{
+  "id": "TASK-003",
+  "title": "定义 migrator bundle runtime 边界",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P2",
+  "wave": 3,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002"
+  ],
+  "read_first": [
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    "docs/deployment/binary-style-deployment.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json",
+    "Dockerfile.web",
+    "docker-compose.yml",
+    "packages/database/package.json",
+    "packages/database/drizzle.config.ts",
+    "packages/database/drizzle/meta/_journal.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "tsconfig.base.json",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    "docs/deployment/binary-style-deployment.md"
+  ],
+  "action": "把 migrator runtime 从需要仓库源码收敛为 bundle 内显式 migrator/ 边界：落地 packages/database、drizzle 配置、迁移 SQL/meta、pnpm-lock、workspace/package 清单和运行命令，并同步构建脚本、校验脚本与部署文档。",
+  "implementation": {
+    "steps": [
+      "在构建脚本中将 migrator 资产固定为 migrator/package.json、migrator/pnpm-lock.yaml、migrator/pnpm-workspace.yaml、migrator/tsconfig.base.json、migrator/packages/database/package.json、migrator/packages/database/drizzle.config.ts、migrator/packages/database/drizzle/、migrator/packages/database/src/、migrator/packages/database/tsconfig.json。",
+      "在构建脚本中生成 migrator/RUNTIME.md 或等价文本，记录目标机只需要 Node.js 与 Corepack/pnpm 运行该边界，不需要 Git checkout 或仓库源码。",
+      "在 verify 脚本中把 migrator 边界纳入必需文件清单，缺少 pnpm-lock.yaml、pnpm-workspace.yaml、drizzle.config.ts、drizzle/meta/_journal.json 或 packages/database/package.json 时失败。",
+      "在 docs/deployment/binary-style-deployment.md 增加 Migrator bundle runtime 小节，列出 bundle 内路径、目标机前置条件、推荐命令和不要求仓库源码的边界。",
+      "文档必须明确迁移仍是 pre_switch 一次性步骤，不常驻、不自动回滚数据库、不接入 updater CLI 或后台 UI。",
+      "文档和脚本不得把目标机源码路径、开发机绝对路径或真实 DATABASE_URL 写入 bundle。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "grep",
+        "check": "rg -n \"migrator/(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.base.json)|packages/database/(package.json|drizzle.config.ts|drizzle|src|tsconfig.json)|_journal.json\" scripts/build-binary-release-bundle.mjs scripts/verify-binary-release-bundle.mjs"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"Migrator bundle runtime|packages/database|drizzle.config.ts|pnpm-lock.yaml|pnpm-workspace.yaml|不要求目标机有仓库源码|不需要.*Git\" docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"pre_switch|一次性|不常驻|数据库.*不.*自动回滚\" docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep_absent",
+        "check": "rg -n \"C:|Users/HomePC1|DATABASE_URL=postgresql://[^.][^.]\" scripts/build-binary-release-bundle.mjs scripts/verify-binary-release-bundle.mjs docs/deployment/binary-style-deployment.md",
+        "expected": "no matches"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- scripts/build-binary-release-bundle.mjs scripts/verify-binary-release-bundle.mjs docs/deployment/binary-style-deployment.md"
+      }
+    ]
+  },
+  "risks": [
+    "migrator 资产若只复制 SQL 而缺少 drizzle config 或 package 清单，目标机无法在无源码 checkout 下执行迁移。",
+    "若过早承诺完全离线迁移，会与当前 pnpm/drizzle-kit runtime 不匹配；文档必须声明目标机前置 Node.js/Corepack/pnpm。",
+    "数据库迁移不可逆风险不能被 bundle 校验掩盖，执行阶段仍只做 pre_switch 边界。"
+  ],
+  "rollback": [
+    "还原 scripts/build-binary-release-bundle.mjs 中 migrator 目录组装逻辑。",
+    "还原 scripts/verify-binary-release-bundle.mjs 中 migrator 必需文件检查。",
+    "移除 docs/deployment/binary-style-deployment.md 的 Migrator bundle runtime 小节。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T12:19:57+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+    "result": "completed",
+    "files_modified": "scripts/build-binary-release-bundle.mjs;scripts/verify-binary-release-bundle.mjs;docs/deployment/binary-style-deployment.md",
+    "tests_passed": "true",
+    "findings": "migrator runtime 收敛到 bundle 内 migrator/，包含 package/workspace/lockfile、database package、drizzle、src、tsconfig 与 RUNTIME.md。"
+  }
+}

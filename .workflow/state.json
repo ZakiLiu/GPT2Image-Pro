@@ -1,40 +1,45 @@
 {
   "version": "3.1",
   "project_name": "GPT2Image-Pro",
-  "status": "executed",
-  "current_milestone": "M1",
+  "status": "completed",
+  "current_milestone": null,
   "current_task_id": null,
   "milestones": [
     {
       "id": "M1",
       "name": "Binary-Style Online Update",
       "type": "standard",
-      "status": "planned",
+      "status": "completed",
       "phases": [
         {
           "id": "M1-P1",
           "name": "部署契约与产物规范",
-          "status": "planned"
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
         },
         {
           "id": "M1-P2",
           "name": "Release Bundle 与 CI 产物",
-          "status": "planned"
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
         },
         {
           "id": "M1-P3",
           "name": "本地 Updater CLI / Script Core",
-          "status": "planned"
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
         },
         {
           "id": "M1-P4",
           "name": "迁移、切换、重启与回滚闭环",
-          "status": "planned"
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
         },
         {
           "id": "M1-P5",
           "name": "Admin Operation、后台入口与文档收口",
-          "status": "planned"
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
         }
       ],
       "phase_slugs": {
@@ -45,7 +50,8 @@
         "M1-P5": "admin-operation-docs"
       },
       "roadmap_ref": ".workflow/roadmap.md",
-      "created_at": "2026-06-21T22:52:02.7964588+08:00"
+      "created_at": "2026-06-21T22:52:02.7964588+08:00",
+      "completed_at": "2026-06-23T14:00:16+08:00"
     }
   ],
   "_milestone_schema": "{ id, name, type: 'standard'|'adhoc', status, phases[], phase_slugs{}, roadmap_ref, created_at }",
@@ -55,166 +61,9 @@
       "type": "roadmap",
       "title": "Binary-Style Online Update Roadmap",
       "created_at": "2026-06-21T22:52:02.7964588+08:00"
-    },
-    {
-      "path": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
-      "type": "plan",
-      "title": "M1-P1 部署契约与产物规范执行计划",
-      "scope": "phase",
-      "milestone": "M1",
-      "phase": "M1-P1",
-      "depends_on": [
-        ".workflow/roadmap.md"
-      ],
-      "plan_file": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
-      "task_count": 5,
-      "created_at": "2026-06-21T23:11:50+08:00"
-    },
-    {
-      "id": "EXC-001",
-      "type": "execute",
-      "milestone": "M1",
-      "phase": "M1-P1",
-      "scope": "phase",
-      "path": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
-      "status": "completed",
-      "depends_on": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
-      "results_file": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/results.csv",
-      "context_file": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec/context.md",
-      "harvested": true,
-      "created_at": "2026-06-21T23:43:53+08:00",
-      "completed_at": "2026-06-21T23:43:53+08:00"
-    },
-    {
-      "path": ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
-      "type": "plan",
-      "title": "M1-P2 Release Bundle 与 CI 产物执行计划",
-      "scope": "phase",
-      "milestone": "M1",
-      "phase": "M1-P2",
-      "depends_on": [
-        ".workflow/roadmap.md",
-        ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec"
-      ],
-      "plan_file": ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json",
-      "task_count": 6,
-      "created_at": "2026-06-22T10:38:24+08:00"
-    },
-    {
-      "id": "EXC-002",
-      "type": "execute",
-      "milestone": "M1",
-      "phase": "M1-P2",
-      "scope": "phase",
-      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
-      "status": "completed",
-      "depends_on": ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
-      "results_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/results.csv",
-      "context_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/context.md",
-      "harvested": true,
-      "created_at": "2026-06-22T12:23:22+08:00",
-      "completed_at": "2026-06-22T12:23:22+08:00"
-    },
-    {
-      "path": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
-      "type": "plan",
-      "title": "M1-P3 本地 Updater CLI / Script Core 执行计划",
-      "scope": "phase",
-      "milestone": "M1",
-      "phase": "M1-P3",
-      "depends_on": [
-        ".workflow/roadmap.md",
-        ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
-        ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
-        ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets"
-      ],
-      "plan_file": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
-      "task_count": 6,
-      "created_at": "2026-06-22T14:15:38+08:00"
-    },
-    {
-      "id": "EXC-003",
-      "type": "execute",
-      "milestone": "M1",
-      "phase": "M1-P3",
-      "scope": "phase",
-      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
-      "status": "completed",
-      "depends_on": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
-      "results_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/results.csv",
-      "context_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/context.md",
-      "harvested": true,
-      "created_at": "2026-06-22T15:29:53+08:00",
-      "completed_at": "2026-06-22T15:29:53+08:00"
-    },
-    {
-      "id": "PLN-004",
-      "path": ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback",
-      "type": "plan",
-      "title": "M1-P4 迁移、切换、重启与回滚闭环执行计划",
-      "scope": "phase",
-      "milestone": "M1",
-      "phase": "M1-P4",
-      "depends_on": [
-        ".workflow/roadmap.md",
-        ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
-        ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core"
-      ],
-      "plan_file": ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
-      "task_count": 7,
-      "check_status": "passed",
-      "created_at": "2026-06-22T20:45:00+08:00"
-    },
-    {
-      "id": "EXC-004",
-      "type": "execute",
-      "milestone": "M1",
-      "phase": "M1-P4",
-      "scope": "phase",
-      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
-      "status": "completed",
-      "depends_on": "PLN-004",
-      "results_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/results.csv",
-      "context_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md",
-      "harvested": true,
-      "created_at": "2026-06-22T22:20:00+08:00",
-      "completed_at": "2026-06-22T22:20:00+08:00"
-    },
-    {
-      "id": "PLN-005",
-      "path": ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs",
-      "type": "plan",
-      "title": "M1-P5 Admin Operation、后台入口与文档收口执行计划",
-      "scope": "phase",
-      "milestone": "M1",
-      "phase": "M1-P5",
-      "depends_on": [
-        ".workflow/roadmap.md",
-        ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback",
-        ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback"
-      ],
-      "plan_file": ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs/plan.json",
-      "task_count": 7,
-      "check_status": "passed",
-      "created_at": "2026-06-22T23:28:22+08:00"
-    },
-    {
-      "id": "EXC-005",
-      "type": "execute",
-      "milestone": "M1",
-      "phase": "M1-P5",
-      "scope": "phase",
-      "path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs",
-      "status": "completed",
-      "depends_on": "PLN-005",
-      "results_file": ".workflow\\.csv-wave\\20260622-execute-scratch-M1-P5-admin-operation-docs\\results.csv",
-      "context_file": ".workflow\\.csv-wave\\20260622-execute-scratch-M1-P5-admin-operation-docs\\context.md",
-      "harvested": true,
-      "created_at": "2026-06-23T01:21:55+08:00",
-      "completed_at": "2026-06-23T01:21:55+08:00"
     }
   ],
-  "last_updated": "2026-06-23T01:21:55+08:00",
+  "last_updated": "2026-06-23T14:00:16+08:00",
   "accumulated_context": {
     "key_decisions": [
       "M1-P1 plan registered: binary-style 部署契约先落 docs/templates/schema/verification，不实现 updater 或后台入口。",
@@ -226,11 +75,137 @@
       "M1-P4 plan registered: updater apply 阶段规划 preflight、candidate migrator、releases/current 原子切换、白名单 systemd restart、healthcheck 与应用层 rollback；Admin/UOL/UI 留到 M1-P5。",
       "M1-P4 executed: updater apply/update 已完成 preflight、release install、candidate migrator、current 切换、白名单 systemd restart、healthcheck、应用层 rollback、自测、文档和 package 脚本；Admin/UOL/UI 留到 M1-P5。",
       "M1-P5 plan registered: Admin Operation、后台入口与文档收口阶段规划 updater runtime bundle inclusion、update UOL operations、default-off web wrapper、thin admin actions、admin status UI、MCP guardrails and docs/final gates.",
-      "M1-P5 executed: Admin Operation、后台入口与文档收口已完成；update.status/update.check/update.apply 默认关闭并经 UOL/adminAction/web wrapper/UI/MCP guardrails 串联，生产 apply 仍需服务端 UPDATER_* 配置且 DB migration 不自动 rollback。"
+      "M1-P5 executed: Admin Operation、后台入口与文档收口已完成；update.status/update.check/update.apply 默认关闭并经 UOL/adminAction/web wrapper/UI/MCP guardrails 串联，生产 apply 仍需服务端 UPDATER_* 配置且 DB migration 不自动 rollback。",
+      "M1 milestone completed: Binary-Style Online Update 已通过审计并归档；active artifacts 已移入 milestone_history，项目状态标记 completed。"
     ],
     "blockers": [],
     "deferred": []
   },
   "transition_history": [],
-  "milestone_history": []
+  "milestone_history": [
+    {
+      "id": "M1",
+      "name": "Binary-Style Online Update",
+      "type": "standard",
+      "status": "completed",
+      "created_at": "2026-06-21T22:52:02.7964588+08:00",
+      "completed_at": "2026-06-23T14:00:16+08:00",
+      "archive_path": ".workflow/milestones/M1",
+      "audit_report": ".workflow/milestones/M1/audit-report.md",
+      "summary": ".workflow/milestones/M1/summary.md",
+      "roadmap_snapshot": ".workflow/milestones/M1/roadmap-snapshot.md",
+      "archived_artifacts_manifest": ".workflow/milestones/M1/archived-artifacts.json",
+      "archived_artifacts": [
+        {
+          "artifact_id": null,
+          "type": "plan",
+          "phase": "M1-P1",
+          "source_path": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P1-plan-001-20260621-plan-M1-P1-deployment-contract-artifact-spec"
+        },
+        {
+          "artifact_id": "EXC-001",
+          "type": "execute",
+          "phase": "M1-P1",
+          "source_path": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P1-execute-EXC-001-20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec"
+        },
+        {
+          "artifact_id": null,
+          "type": "plan",
+          "phase": "M1-P2",
+          "source_path": ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P2-plan-003-20260622-plan-M1-P2-release-bundle-ci-assets"
+        },
+        {
+          "artifact_id": "EXC-002",
+          "type": "execute",
+          "phase": "M1-P2",
+          "source_path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P2-execute-EXC-002-20260622-execute-scratch-M1-P2-release-bundle-ci-assets"
+        },
+        {
+          "artifact_id": null,
+          "type": "plan",
+          "phase": "M1-P3",
+          "source_path": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P3-plan-005-20260622-plan-M1-P3-local-updater-core"
+        },
+        {
+          "artifact_id": "EXC-003",
+          "type": "execute",
+          "phase": "M1-P3",
+          "source_path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P3-execute-EXC-003-20260622-execute-scratch-M1-P3-local-updater-core"
+        },
+        {
+          "artifact_id": "PLN-004",
+          "type": "plan",
+          "phase": "M1-P4",
+          "source_path": ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P4-plan-PLN-004-20260622-plan-M1-P4-migration-switch-restart-rollback"
+        },
+        {
+          "artifact_id": "EXC-004",
+          "type": "execute",
+          "phase": "M1-P4",
+          "source_path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P4-execute-EXC-004-20260622-execute-scratch-M1-P4-migration-switch-restart-rollback"
+        },
+        {
+          "artifact_id": "PLN-005",
+          "type": "plan",
+          "phase": "M1-P5",
+          "source_path": ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P5-plan-PLN-005-20260622-plan-M1-P5-admin-operation-docs"
+        },
+        {
+          "artifact_id": "EXC-005",
+          "type": "execute",
+          "phase": "M1-P5",
+          "source_path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs",
+          "archive_path": ".workflow/milestones/M1/artifacts/M1-P5-execute-EXC-005-20260622-execute-scratch-M1-P5-admin-operation-docs"
+        }
+      ],
+      "phases": [
+        {
+          "id": "M1-P1",
+          "name": "部署契约与产物规范",
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
+        },
+        {
+          "id": "M1-P2",
+          "name": "Release Bundle 与 CI 产物",
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
+        },
+        {
+          "id": "M1-P3",
+          "name": "本地 Updater CLI / Script Core",
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
+        },
+        {
+          "id": "M1-P4",
+          "name": "迁移、切换、重启与回滚闭环",
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
+        },
+        {
+          "id": "M1-P5",
+          "name": "Admin Operation、后台入口与文档收口",
+          "status": "completed",
+          "completed_at": "2026-06-23T14:00:16+08:00"
+        }
+      ],
+      "phase_slugs": {
+        "M1-P1": "deployment-contract-artifact-spec",
+        "M1-P2": "release-bundle-ci-assets",
+        "M1-P3": "local-updater-core",
+        "M1-P4": "migration-switch-restart-rollback",
+        "M1-P5": "admin-operation-docs"
+      }
+    }
+  ]
 }

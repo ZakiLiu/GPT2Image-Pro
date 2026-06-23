@@ -1,0 +1,100 @@
+{
+  "id": "TASK-001",
+  "title": "新增 binary-style release bundle 构建脚本与 npm script",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P2",
+  "wave": 1,
+  "depends_on": [],
+  "read_first": [
+    "scripts/build-binary-release-bundle.mjs",
+    "package.json",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json",
+    "Dockerfile.web",
+    "Dockerfile.chatgpt-web-proxy",
+    "docker-compose.yml",
+    "apps/web/next.config.mjs",
+    "services/chatgpt-web-proxy/go.mod",
+    "services/chatgpt-web-proxy/go.sum",
+    "packages/database/package.json",
+    "packages/database/drizzle.config.ts",
+    "packages/database/drizzle/meta/_journal.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/build-binary-release-bundle.mjs",
+    "package.json"
+  ],
+  "action": "创建无外部运行时依赖的 Node 构建脚本，并在 package.json 增加 build:binary-bundle。脚本从已完成的 Web standalone、static、public、数据库迁移资产和 Go sidecar 构建结果组装 dist/binary-style/<version>/，生成 tar.gz/zip 输入目录，不包含 .env、storage、.gpt2image、secrets 或 logs。",
+  "implementation": {
+    "steps": [
+      "在 scripts/build-binary-release-bundle.mjs 添加文件级注释，说明脚本只负责 M1-P2 release bundle 组装，不执行 updater、systemd 安装或生产切换。",
+      "定义 CLI 参数：--version、--commit、--platform=linux-x64、--out-dir=dist/binary-style、--proxy-binary、--archive/--no-archive；version 使用项目 tag 格式，platform 首版仅允许 linux-x64。",
+      "读取 package.json version、GITHUB_REF_NAME、GITHUB_SHA 作为默认 version/commit，但不得读取 .env 或任何运行时 secret 文件。",
+      "复制 apps/web/.next/standalone、apps/web/.next/static、apps/web/public 到 dist/binary-style/<version>/gpt2image-pro-<version>-linux-x64/apps/web/.next/ 对应目录，保留 Next standalone 相对布局。",
+      "复制 services/chatgpt-web-proxy 的 Linux x64 构建结果到 bundle 的 bin/chatgpt-web-proxy；缺失或非文件时失败退出。",
+      "复制 migrator 初始资产：packages/database/package.json、packages/database/drizzle.config.ts、packages/database/drizzle/、packages/database/src/、packages/database/tsconfig.json、root package.json、pnpm-lock.yaml、pnpm-workspace.yaml、tsconfig.base.json。",
+      "复制 deploy/systemd/gpt2image-*.service.example、docs/deployment/binary-style-manifest.schema.json 和必要部署说明到 bundle 的 deploy/systemd/ 与 docs/deployment/。",
+      "生成 manifest.json 与 SHA256SUMS；manifest 字段继承 M1-P1 schema，artifact_url 使用可替换的 release asset 占位 URL。",
+      "实现显式 denylist：.env、.env.*、storage、.gpt2image、secrets、logs、node_modules/.cache、.next/cache 不得进入 bundle；命中时构建失败。",
+      "在 package.json scripts 增加 build:binary-bundle，命令为 node scripts/build-binary-release-bundle.mjs。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "file_exists",
+        "check": "Test-Path scripts/build-binary-release-bundle.mjs"
+      },
+      {
+        "type": "package_script",
+        "check": "node -e \"const p=require('./package.json'); if(!p.scripts['build:binary-bundle']?.includes('scripts/build-binary-release-bundle.mjs')) process.exit(1);\""
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"dist/binary-style|apps/web/.next/standalone|apps/web/.next/static|apps/web/public|packages/database|chatgpt-web-proxy|manifest.json|SHA256SUMS\" scripts/build-binary-release-bundle.mjs"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"linux-x64|--version|--commit|--proxy-binary|--no-archive\" scripts/build-binary-release-bundle.mjs"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"\\.env|storage|\\.gpt2image|secrets|logs|\\.next/cache\" scripts/build-binary-release-bundle.mjs"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- scripts/build-binary-release-bundle.mjs package.json"
+      }
+    ]
+  },
+  "risks": [
+    "Next standalone 目录在 Windows 本地可能因 trace 文件名包含冒号导致拷贝异常；真实 release smoke 必须以 Linux runner 为准。",
+    "如果脚本误把运行态目录或 env 文件复制进 bundle，会违反 secrets 禁入契约；必须用 denylist fail closed。",
+    "Go sidecar 产物不能从历史文件猜测，CI 和 smoke 必须显式传入本次 GOOS=linux GOARCH=amd64 构建结果。"
+  ],
+  "rollback": [
+    "删除 scripts/build-binary-release-bundle.mjs。",
+    "从 package.json scripts 移除 build:binary-bundle。",
+    "删除 dist/binary-style/<version>/ 临时构建目录。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T12:19:57+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+    "result": "completed",
+    "files_modified": "scripts/build-binary-release-bundle.mjs;package.json",
+    "tests_passed": "true",
+    "findings": "新增 binary-style bundle 构建脚本和 build:binary-bundle，组装 Web standalone/static/public、Go sidecar、migrator、manifest、SHA256SUMS 与 tar/zip。"
+  }
+}

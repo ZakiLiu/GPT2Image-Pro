@@ -43,6 +43,8 @@ GPT2Image-Pro 是面向生图业务的 SaaS 平台，把 ChatGPT Web、Codex/Res
 ## Context
 
 该项目是 TypeScript strict 的 Turborepo monorepo，使用 pnpm、Next.js 16 App Router、React 19、Drizzle ORM、PostgreSQL、Better Auth、Zod、next-safe-action、Creem、next-intl、Fumadocs MDX、Biome 和 Vitest。部署目标为 Docker Compose + Nginx + Certbot。
+M1 Binary-Style Online Update 已于 2026-06-23 完成并归档到 `.workflow/milestones/M1/`；该 milestone 保持 Docker Compose 为默认部署路径，同时提供 Linux x64 binary-style release assets、本地 updater apply/update 闭环、默认关闭的 Admin Operation 与 MCP destructive guardrails。
+
 
 项目文档入口包括 `README.md`、`AGENTS.md` / `CLAUDE.md`、`docs/CI-CD.md`、`docs/MEMORY.md`、`docs/TODO.md` 与 `docs/plan/`。当前 Maestro 初始化是在已有代码库上补齐 `.workflow/` 工作流结构，保留既有 `.workflow/wiki-index.json`。
 
@@ -82,6 +84,7 @@ GPT2Image-Pro 是面向生图业务的 SaaS 平台，把 ChatGPT Web、Codex/Res
 | 以 `credits_transaction` 作为财务真相 | `generation` 行只用于历史与画廊展示，不能承载财务一致性 | Accepted |
 | 手写幂等 Drizzle SQL 迁移 | 避免 `drizzle-kit generate` 快照漂移与交互模式 | Accepted |
 | `AGENTS.md` 与 `CLAUDE.md` 必须逐字一致 | CI `docs-mirror` 强制，避免协作 Agent 规则漂移 | Accepted |
+| M1 binary-style online update 采用默认关闭的 Admin/UOL 暴露 | 在线更新是 destructive 操作，必须由服务端 UPDATER_* 配置、confirmVersion、runId 与 MCP read-only/deny guardrail 共同约束 | Accepted |
 
 ## Stakeholders
 
@@ -91,4 +94,4 @@ GPT2Image-Pro 是面向生图业务的 SaaS 平台，把 ChatGPT Web、Codex/Res
 - 维护 GPT2Image-Pro 的开发者和协作 Agent
 
 ---
-*Last updated: 2026-06-21 after initialization*
+*Last updated: 2026-06-23 after M1 milestone completion*

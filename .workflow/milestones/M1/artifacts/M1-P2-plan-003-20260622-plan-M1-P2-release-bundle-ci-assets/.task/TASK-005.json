@@ -1,0 +1,91 @@
+{
+  "id": "TASK-005",
+  "title": "更新 README、CI/CD 与 binary-style 文档说明 M1-P2 release assets",
+  "type": "docs",
+  "milestone": "M1",
+  "phase": "M1-P2",
+  "wave": 5,
+  "depends_on": [
+    "TASK-003",
+    "TASK-004"
+  ],
+  "read_first": [
+    "README.md",
+    "docs/CI-CD.md",
+    "docs/deployment/binary-style-deployment.md",
+    ".github/workflows/docker-release.yml",
+    "package.json",
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P2-release-bundle-ci-assets/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json"
+  ],
+  "files_to_modify": [
+    "README.md",
+    "docs/CI-CD.md",
+    "docs/deployment/binary-style-deployment.md"
+  ],
+  "action": "更新用户文档，说明 M1-P2 tag release 会新增 binary-style tar.gz、zip、sha256、manifest.json 和 SHA256SUMS 产物，给出生成流程、校验方式和边界；同时明确 updater CLI、后台 UI、Sub2API、Codex 登录、Agent 分支、批量图片工具和 PSD 仍未实现。",
+  "implementation": {
+    "steps": [
+      "在 README 的发布或生产部署小节中把 binary-style 从后续接入更新为 M1-P2 release assets，列出资产命名：gpt2image-pro-<version>-linux-x64.tar.gz、gpt2image-pro-<version>-linux-x64.zip、对应 .sha256、manifest.json、SHA256SUMS。",
+      "在 docs/CI-CD.md 的 docker-release.yml 章节中补充 release workflow 顺序：GHCR 三镜像、compose 包、Web build、Go test/build、binary bundle build、bundle verify、Release 上传。",
+      "在 docs/deployment/binary-style-deployment.md 增加 M1-P2 release assets 与校验方式小节，包含 sha256sum -c、tar -tzf、unzip -l 和 pnpm verify:binary-bundle 示例。",
+      "文档必须继续声明 Docker Compose 发布链路保留且仍可用，不把 binary-style 写成替换方案。",
+      "文档必须明确 M1-P2 仍不包含 updater CLI、本地切换、后台 admin operation/UI、Sub2API、Codex 登录、Agent 分支、批量图片工具或 PSD。",
+      "文档示例不得包含真实 secrets、token、password、DATABASE_URL 或 BETTER_AUTH_SECRET。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "grep",
+        "check": "rg -n \"gpt2image-pro-.*linux-x64\\.tar\\.gz|gpt2image-pro-.*linux-x64\\.zip|manifest.json|SHA256SUMS|sha256\" README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"pnpm build:binary-bundle|pnpm verify:binary-bundle|sha256sum -c|tar -tzf|unzip -l\" docs/CI-CD.md docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"Docker Compose|GHCR|compose 包|不替换|保留\" README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"不包含 updater|不实现 updater|后台.*未实现|Sub2API|Codex 登录|Agent 分支|批量图片工具|PSD\" README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "grep_absent",
+        "check": "rg -n \"BETTER_AUTH_SECRET=.+|DATABASE_URL=postgresql://[^.][^.]|token=|password=\" README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md",
+        "expected": "no matches"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md"
+      }
+    ]
+  },
+  "risks": [
+    "文档可能让用户误以为在线更新已经可用；必须显式说 M1-P2 只有 release assets，没有 updater 切换闭环。",
+    "README 的 Docker Compose 推荐路径不能被弱化或替换。",
+    "资产名称若与 workflow 不一致，会导致用户下载失败；文档必须与 docker-release.yml 中的 files 名称一致。"
+  ],
+  "rollback": [
+    "还原 README 中 M1-P2 binary-style release assets 说明。",
+    "还原 docs/CI-CD.md 中 binary assets workflow 说明。",
+    "还原 docs/deployment/binary-style-deployment.md 中新增的 M1-P2 assets 与校验小节。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T12:19:57+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+    "result": "completed",
+    "files_modified": "README.md;docs/CI-CD.md;docs/deployment/binary-style-deployment.md",
+    "tests_passed": "true",
+    "findings": "文档同步 M1-P2 release assets、workflow 顺序、校验命令、Docker Compose/GHCR 保留与 updater/admin/backlog 未实现边界。"
+  }
+}

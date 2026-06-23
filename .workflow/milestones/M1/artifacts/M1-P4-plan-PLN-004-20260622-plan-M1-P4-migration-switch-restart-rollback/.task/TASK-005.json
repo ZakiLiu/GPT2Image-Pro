@@ -1,0 +1,69 @@
+{
+  "id": "TASK-005",
+  "title": "实现 healthcheck probes 与应用层 rollback journal/restore flow",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P4",
+  "wave": 5,
+  "depends_on": [
+    "TASK-004"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    "docs/deployment/binary-style-deployment.md",
+    "scripts/binary-style-release-lib.mjs",
+    "package.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "切换 current 并重启白名单服务后执行 Web HTTP、sidecar TCP 和可选 smoke；失败时按 apply.json 恢复 previous_current。 必须显式处理 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env，并拒绝 PostgreSQL、Nginx、Docker 与 Admin/UOL/UI。",
+  "implementation": {
+    "steps": [
+      "实现 runHealthchecks，Web HTTP 检查 127.0.0.1:3000/api/health 期望 200，chatgpt-web-proxy TCP 检查 127.0.0.1:3021；可选 DB/admin smoke 只走安全命令边界。",
+      "实现 writeApplyJournal，把 shared/staging/<run-id>/apply.json 持续写入 previous_current、candidate_release、current_target、restarted_units、healthcheck_results、rollback_status、db_migration_irreversible。",
+      "实现 rollbackApplicationLayer，healthcheck 失败时把 current 原子切回 previous_current，再次只重启 gpt2image-web.service 与 gpt2image-chatgpt-web-proxy.service。",
+      "rollback 后再次 runHealthchecks 验证上一版；保留失败 releases/<version>、shared/staging、updater log 和 migration log，不自动删除数据库状态。",
+      "JSON summary 与日志明确 rollback 只恢复应用/proxy，不承诺数据库自动 rollback，且不输出 /etc/gpt2image/gpt2image.env 值。",
+      "边界复核：代码和日志中必须保留 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env 这些显式名词。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node --check scripts/local-updater.mjs",
+      "rg -n \"runHealthchecks|rollbackApplicationLayer|writeApplyJournal|apply\\.json|rollback_status|previous_current|db_migration_irreversible|127\\.0\\.0\\.1:3000|127\\.0\\.0\\.1:3021\" scripts/local-updater.mjs",
+      "node -e \"const fs=require('fs'); const t=fs.readFileSync('scripts/local-updater.mjs','utf8'); for (const s of ['rollbackApplicationLayer','previous_current','gpt2image-web.service','gpt2image-chatgpt-web-proxy.service','db_migration_irreversible']) if (!t.includes(s)) throw new Error(s);\"",
+      "rg -n \"current|releases|shared/staging|shared/updater\\.lock|/etc/gpt2image/gpt2image\\.env|数据库.*不可.*回滚|DB migration\" scripts/local-updater.mjs docs/deployment/binary-style-deployment.md",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "previous_current 若未在切换前落盘，进程崩溃后无法恢复。",
+    "healthcheck 若访问公网域名，可能被代理缓存误导。",
+    "自动删除 failed release 会丢失排查证据。"
+  ],
+  "rollback": [
+    "还原 runHealthchecks、writeApplyJournal、rollbackApplicationLayer 以及 runApply 调用。",
+    "若 current 已切换，按 apply.json previous_current 手动恢复并重启两个白名单服务。",
+    "保留 shared/staging/<run-id>/apply.json 和 failed release 供人工分析。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T22:20:00+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.summaries/TASK-005-summary.md;.workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    "tests_passed": "true",
+    "findings": "实现 writeApplyJournal/runHealthchecks/rollbackApplicationLayer；Web HTTP 与 proxy TCP 健康检查失败时恢复 previous_current 并重启两个白名单服务，journal 保留 db_migration_irreversible=true。criteria 与 rollback smoke 均通过。",
+    "error": ""
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "id": "TASK-001",
+  "title": "建立 preflight、apply/update 命令骨架与安全操作模型",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P4",
+  "wave": 1,
+  "depends_on": [],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    "docs/deployment/binary-style-deployment.md",
+    "scripts/binary-style-release-lib.mjs",
+    "package.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "扩展 local-updater CLI，让 apply/update 进入显式 mutating 分发路径，并先落 preflight 与安全操作模型，不执行真实切换。 必须显式处理 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env，并拒绝 PostgreSQL、Nginx、Docker 与 Admin/UOL/UI。",
+  "implementation": {
+    "steps": [
+      "扩展 commandNames、supportedArgs、formatHelp、dispatch、assertDryRunFlagAllowed；apply/update 缺少 --install-root、--manifest、--env-file 时失败，--env-file 文档默认 /etc/gpt2image/gpt2image.env。",
+      "新增 runApply skeleton 与 preflightApplyRuntime，检查磁盘空间命令边界、当前 current 摘要、releases 目录、shared/staging 可写性、shared/updater.lock 占用、服务 status 查询计划和数据库连接命令边界。",
+      "新增 ALLOWED_SYSTEMD_UNITS 常量，仅包含 gpt2image-web.service 与 gpt2image-chatgpt-web-proxy.service；新增 redactSensitiveText 遮蔽 DATABASE_URL、BETTER_AUTH_SECRET、CHATGPT_WEB_PROXY_SECRET、Authorization、Cookie。",
+      "保持 check、download、stage、status、dry-run 行为不变；本任务不写 releases/<version>，不切 current，不调用 systemctl。",
+      "边界复核：代码和日志中必须保留 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env 这些显式名词。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node --check scripts/local-updater.mjs",
+      "rg -n \"apply|update|preflightApplyRuntime|ALLOWED_SYSTEMD_UNITS|redactSensitiveText|gpt2image-web\\.service|gpt2image-chatgpt-web-proxy\\.service|shared/updater\\.lock|/etc/gpt2image/gpt2image\\.env|shared/staging|releases|current\" scripts/local-updater.mjs",
+      "node scripts/local-updater.mjs apply --dry-run; if ($LASTEXITCODE -eq 0) { throw \"apply dry-run unexpectedly passed\" }",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "apply/update skeleton 若默认继续执行，可能被误用为生产更新。",
+    "预检输出若包含 /etc/gpt2image/gpt2image.env 值，会泄露 secrets。",
+    "服务清单若来自 manifest 任意 unit，会扩大 systemd blast radius。"
+  ],
+  "rollback": [
+    "还原 scripts/local-updater.mjs 中 apply/update、preflightApplyRuntime、ALLOWED_SYSTEMD_UNITS、redactSensitiveText 改动。",
+    "运行 node scripts/local-updater.mjs --self-test，确认 M1-P3 check/download/stage 基线仍通过。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T22:20:00+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/discoveries.ndjson;.workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.summaries/TASK-001-summary.md",
+    "tests_passed": "true",
+    "findings": "已建立 apply/update 显式入口、preflightApplyRuntime、ALLOWED_SYSTEMD_UNITS 与 redactSensitiveText；仅做预检与安全操作模型，不写 releases/<version>、不切 current、不调用 systemctl。所有 convergence criteria 通过，summary 已写入，discoveries 已追加。",
+    "error": ""
+  }
+}

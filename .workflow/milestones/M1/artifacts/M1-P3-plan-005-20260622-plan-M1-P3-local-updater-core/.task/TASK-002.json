@@ -1,0 +1,69 @@
+{
+  "id": "TASK-002",
+  "title": "新增本地 updater CLI skeleton 与 package scripts",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P3",
+  "wave": 2,
+  "depends_on": [
+    "TASK-001"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    "package.json",
+    "scripts/binary-style-release-lib.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/context.md",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs",
+    "package.json"
+  ],
+  "action": "新增 scripts/local-updater.mjs，提供 check、plan、status、dry-run 与 --self-test cli 入口，并在 package.json 暴露 updater:check、updater:plan、updater:status、updater:dry-run scripts。",
+  "implementation": {
+    "steps": [
+      "按 scripts/*.mjs 现有风格添加 shebang、文件级中文注释、ESM import、rootDir 解析、parseArgs(Map)、readStringArg、main().catch 和 process.exitCode。",
+      "实现命令分发：check、plan、status、dry-run、--help、--self-test cli；未知命令和缺值参数返回非零退出。",
+      "所有命令默认 dry-run，不写 current、不写 releases、不调用 systemd、不执行 migration；status 只读取 install root 下 manifest/current-version 文件的可选存在状态。",
+      "package.json 增加 updater:check、updater:plan、updater:status、updater:dry-run，均调用 node scripts/local-updater.mjs 对应子命令。",
+      "实现 cli self-test 覆盖 help、未知命令、必填参数缺失和 dry-run 不写入。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node scripts/local-updater.mjs --help",
+      "node scripts/local-updater.mjs --self-test cli",
+      "node scripts/local-updater.mjs status --install-root . --dry-run",
+      "rg -n \"check|plan|status|dry-run|self-test\" scripts/local-updater.mjs",
+      "rg -n \"\\\"updater:check\\\"|\\\"updater:plan\\\"|\\\"updater:status\\\"|\\\"updater:dry-run\\\"\" package.json",
+      "git diff --check -- scripts/local-updater.mjs package.json"
+    ]
+  },
+  "risks": [
+    "CLI skeleton 若直接写 install root，会提前越过 Phase 3 dry-run 边界。",
+    "package scripts 名称若不稳定，会让后续 docs 和 execution task 难以引用。",
+    "top-level await main 如果没有 import guard，会影响后续 pure function import self-test。"
+  ],
+  "rollback": [
+    "删除 scripts/local-updater.mjs。",
+    "从 package.json 移除 updater:check、updater:plan、updater:status、updater:dry-run。",
+    "运行 node scripts/verify-binary-release-bundle.mjs --self-test 确认 TASK-001 产物仍可用。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T15:29:53+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;package.json;.workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/discoveries.ndjson;.workflow/scratch/20260622-plan-M1-P3-local-updater-core/.summaries/TASK-002-summary.md",
+    "tests_passed": "true",
+    "findings": "新增本地 updater CLI skeleton 与 package scripts；所有收敛命令通过，CLI 仅做只读 check/plan/status/dry-run/self-test，未越过 Phase 3 边界。",
+    "error": ""
+  }
+}

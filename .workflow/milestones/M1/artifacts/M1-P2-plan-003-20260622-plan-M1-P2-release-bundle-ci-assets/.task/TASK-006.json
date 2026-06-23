@@ -1,0 +1,122 @@
+{
+  "id": "TASK-006",
+  "title": "收口验证与 artifact smoke",
+  "type": "verification",
+  "milestone": "M1",
+  "phase": "M1-P2",
+  "wave": 6,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005"
+  ],
+  "read_first": [
+    "package.json",
+    "scripts/build-binary-release-bundle.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    "scripts/verify-binary-deployment-contract.mjs",
+    ".github/workflows/docker-release.yml",
+    "README.md",
+    "docs/CI-CD.md",
+    "docs/deployment/binary-style-deployment.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "Dockerfile.web",
+    "Dockerfile.chatgpt-web-proxy",
+    "apps/web/next.config.mjs",
+    "services/chatgpt-web-proxy/go.mod",
+    "packages/database/package.json"
+  ],
+  "files_to_modify": [],
+  "action": "执行 M1-P2 收口验证和 artifact smoke：契约校验、Web build、Go test/build、bundle 构建校验、sha256 校验、tar/zip 文件清单、git diff --check，并确认本阶段仍未实现 updater 切换。",
+  "implementation": {
+    "steps": [
+      "运行 pnpm verify:binary-contract，确保 M1-P1 文档、manifest schema 和 systemd 模板契约没有被破坏。",
+      "运行 pnpm build:web，确保 apps/web/.next/standalone、static 和 public 可生成。",
+      "在 services/chatgpt-web-proxy 执行 go test ./...。",
+      "构建 Linux x64 sidecar：CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags=\"-s -w\" -o ../../dist/binary-style/smoke/chatgpt-web-proxy .。",
+      "运行 pnpm build:binary-bundle -- --version v0.0.0-alpha.0 --commit 0000000000000000000000000000000000000000 --proxy-binary dist/binary-style/smoke/chatgpt-web-proxy。",
+      "运行 pnpm verify:binary-bundle 指向 smoke bundle、manifest 和 tar.gz artifact。",
+      "运行 sha256sum -c 校验 tar.gz 和 zip 的 .sha256 文件。",
+      "用 tar -tzf 和 unzip -l 列出文件清单，确认包含 Web standalone/static/public、migrator、bin/chatgpt-web-proxy、manifest.json、SHA256SUMS，且不包含 .env/storage/.gpt2image/secrets/logs。",
+      "运行 git diff --check 覆盖本阶段所有修改文件。",
+      "用 rg 确认 docs 明确写出 updater 切换、后台 UI 和 admin operation 仍未实现。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      {
+        "type": "command",
+        "check": "pnpm verify:binary-contract"
+      },
+      {
+        "type": "command",
+        "check": "pnpm build:web"
+      },
+      {
+        "type": "command",
+        "check": "cd services/chatgpt-web-proxy && go test ./..."
+      },
+      {
+        "type": "command",
+        "check": "cd services/chatgpt-web-proxy && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags=\"-s -w\" -o ../../dist/binary-style/smoke/chatgpt-web-proxy ."
+      },
+      {
+        "type": "command",
+        "check": "pnpm build:binary-bundle -- --version v0.0.0-alpha.0 --commit 0000000000000000000000000000000000000000 --proxy-binary dist/binary-style/smoke/chatgpt-web-proxy"
+      },
+      {
+        "type": "command",
+        "check": "pnpm verify:binary-bundle -- --bundle-dir dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64 --manifest dist/binary-style/v0.0.0-alpha.0/manifest.json --artifact dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz"
+      },
+      {
+        "type": "command",
+        "check": "sha256sum -c dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz.sha256"
+      },
+      {
+        "type": "command",
+        "check": "sha256sum -c dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.zip.sha256"
+      },
+      {
+        "type": "command",
+        "check": "tar -tzf dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz | rg -n \"apps/web/.next/standalone|apps/web/.next/static|apps/web/public|migrator/packages/database|bin/chatgpt-web-proxy|manifest.json|SHA256SUMS\""
+      },
+      {
+        "type": "command",
+        "check": "unzip -l dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.zip | rg -n \"apps/web/.next/standalone|apps/web/.next/static|apps/web/public|migrator/packages/database|bin/chatgpt-web-proxy|manifest.json|SHA256SUMS\""
+      },
+      {
+        "type": "grep_absent",
+        "check": "tar -tzf dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz | rg -n \"(^|/)(\\.env|\\.env\\.|storage|\\.gpt2image|secrets|logs)(/|$)\"",
+        "expected": "no matches"
+      },
+      {
+        "type": "grep",
+        "check": "rg -n \"不包含 updater|不实现 updater|后台.*未实现|admin operation.*未实现|M1-P2\" README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md"
+      },
+      {
+        "type": "command",
+        "check": "git diff --check -- scripts/build-binary-release-bundle.mjs scripts/verify-binary-release-bundle.mjs .github/workflows/docker-release.yml README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md package.json"
+      }
+    ]
+  },
+  "risks": [
+    "Windows 本地可能缺少 sha256sum、tar 或 unzip；收口 smoke 以 Linux runner 或 Git Bash 环境为准，Windows 仅作为语法检查补充。",
+    "pnpm build:web 可能耗时较长，但这是判断 Next standalone bundle 是否真实存在的必要门禁。",
+    "本任务不写业务代码；如果 smoke 失败，应回到对应 TASK 修正，不应通过弱化校验制造通过。"
+  ],
+  "rollback": [
+    "本任务不修改源文件；如验证失败，停止发布并回滚对应失败任务的文件变更。",
+    "删除 dist/binary-style/v0.0.0-alpha.0 和 dist/binary-style/smoke 临时产物。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T12:19:57+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+    "result": "completed",
+    "files_modified": "scripts/build-binary-release-bundle.mjs;scripts/verify-binary-release-bundle.mjs",
+    "tests_passed": "true",
+    "findings": "完成 artifact smoke，并修复两个收口发现：合法 api/storage 路由不再被 denylist 误伤，.sha256 改为仓库相对路径以支持计划中的 sha256sum -c 命令。"
+  }
+}

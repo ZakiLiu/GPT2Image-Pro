@@ -1,0 +1,73 @@
+{
+  "id": "TASK-006",
+  "title": "更新文档并执行 Phase 3 final gate plan",
+  "type": "docs",
+  "milestone": "M1",
+  "phase": "M1-P3",
+  "wave": 6,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005"
+  ],
+  "read_first": [
+    "docs/deployment/binary-style-deployment.md",
+    "package.json",
+    "scripts/local-updater.mjs",
+    "scripts/binary-style-release-lib.mjs",
+    "scripts/verify-binary-release-bundle.mjs",
+    "scripts/verify-binary-deployment-contract.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/context.md",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json"
+  ],
+  "files_to_modify": [
+    "docs/deployment/binary-style-deployment.md"
+  ],
+  "action": "补充 binary-style deployment 文档中的本地 updater Phase 3 用法、命令、dry-run 边界、staging/lock/env preflight、失败清理和最终 gate；运行 self-test/contract/bundle verifier 组合收口。",
+  "implementation": {
+    "steps": [
+      "在 docs/deployment/binary-style-deployment.md 增加 M1-P3 本地 updater CLI 章节，列出 updater:check、updater:plan、updater:status、updater:dry-run 示例。",
+      "文档明确 Phase 3 不切换 current、不运行 migrator、不调用 systemd、不做 healthcheck rollback、不提供 Admin/UOL 入口。",
+      "补充 staging 路径、updater.lock、.partial 下载清理、artifact_sha256 校验、manifest platform/version/minimum_supported_version 决策和 env preflight 说明。",
+      "补充 final gate 命令块：node scripts/local-updater.mjs --self-test、node scripts/verify-binary-release-bundle.mjs --self-test、pnpm verify:binary-contract、pnpm verify:binary-bundle smoke、git diff --check。",
+      "执行 final gate，若 dist smoke bundle 不存在，则先按 M1-P2 文档命令生成 smoke bundle 后再跑 verify:binary-bundle。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "rg -n \"updater:check|updater:plan|updater:status|updater:dry-run|shared/staging|updater.lock|\\.partial\" docs/deployment/binary-style-deployment.md package.json",
+      "rg -n \"node scripts/local-updater.mjs --self-test|node scripts/verify-binary-release-bundle.mjs --self-test|pnpm verify:binary-contract|pnpm verify:binary-bundle\" docs/deployment/binary-style-deployment.md",
+      "node scripts/local-updater.mjs --self-test",
+      "node scripts/verify-binary-release-bundle.mjs --self-test",
+      "pnpm verify:binary-contract",
+      "git diff --check -- scripts/binary-style-release-lib.mjs scripts/verify-binary-release-bundle.mjs scripts/local-updater.mjs package.json docs/deployment/binary-style-deployment.md"
+    ]
+  },
+  "risks": [
+    "文档若暗示可在线切换或后台触发，会越过 Phase 3 边界。",
+    "final gate 若只跑 updater self-test 而不跑 contract/bundle verifier，可能遗漏 M1-P1/M1-P2 回归。",
+    "docs 命令若包含真实 env 路径内容或 secrets 示例，会违反 secrets 边界。"
+  ],
+  "rollback": [
+    "还原 docs/deployment/binary-style-deployment.md 中 M1-P3 updater 章节。",
+    "保留已通过的 scripts/package 代码变更，除非 final gate 指向代码回归。",
+    "重新运行 rg -n \"M1-P2 release assets\" docs/deployment/binary-style-deployment.md 确认原 M1-P2 文档仍存在。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T15:29:53+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+    "result": "completed",
+    "files_modified": "docs/deployment/binary-style-deployment.md;.workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/discoveries.ndjson;.workflow/scratch/20260622-plan-M1-P3-local-updater-core/.summaries/TASK-006-summary.md",
+    "tests_passed": "true",
+    "findings": "更新 M1-P3 updater CLI 文档并完成 final gate；local-updater self-test、bundle verifier self-test、binary contract、grep 与 diff check 均通过。",
+    "error": ""
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "milestone": "M1",
+  "archived_at": "2026-06-23T13:53:31+08:00",
+  "artifacts": [
+    {
+      "artifact_id": null,
+      "type": "plan",
+      "phase": "M1-P1",
+      "source_path": ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P1-plan-001-20260621-plan-M1-P1-deployment-contract-artifact-spec"
+    },
+    {
+      "artifact_id": "EXC-001",
+      "type": "execute",
+      "phase": "M1-P1",
+      "source_path": ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P1-execute-EXC-001-20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec"
+    },
+    {
+      "artifact_id": null,
+      "type": "plan",
+      "phase": "M1-P2",
+      "source_path": ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P2-plan-003-20260622-plan-M1-P2-release-bundle-ci-assets"
+    },
+    {
+      "artifact_id": "EXC-002",
+      "type": "execute",
+      "phase": "M1-P2",
+      "source_path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P2-execute-EXC-002-20260622-execute-scratch-M1-P2-release-bundle-ci-assets"
+    },
+    {
+      "artifact_id": null,
+      "type": "plan",
+      "phase": "M1-P3",
+      "source_path": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P3-plan-005-20260622-plan-M1-P3-local-updater-core"
+    },
+    {
+      "artifact_id": "EXC-003",
+      "type": "execute",
+      "phase": "M1-P3",
+      "source_path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P3-execute-EXC-003-20260622-execute-scratch-M1-P3-local-updater-core"
+    },
+    {
+      "artifact_id": "PLN-004",
+      "type": "plan",
+      "phase": "M1-P4",
+      "source_path": ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P4-plan-PLN-004-20260622-plan-M1-P4-migration-switch-restart-rollback"
+    },
+    {
+      "artifact_id": "EXC-004",
+      "type": "execute",
+      "phase": "M1-P4",
+      "source_path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P4-execute-EXC-004-20260622-execute-scratch-M1-P4-migration-switch-restart-rollback"
+    },
+    {
+      "artifact_id": "PLN-005",
+      "type": "plan",
+      "phase": "M1-P5",
+      "source_path": ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P5-plan-PLN-005-20260622-plan-M1-P5-admin-operation-docs"
+    },
+    {
+      "artifact_id": "EXC-005",
+      "type": "execute",
+      "phase": "M1-P5",
+      "source_path": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs",
+      "archive_path": ".workflow/milestones/M1/artifacts/M1-P5-execute-EXC-005-20260622-execute-scratch-M1-P5-admin-operation-docs"
+    }
+  ]
+}

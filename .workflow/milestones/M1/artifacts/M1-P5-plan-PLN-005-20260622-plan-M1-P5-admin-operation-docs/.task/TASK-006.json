@@ -1,0 +1,58 @@
+{
+  "id": "TASK-006",
+  "title": "验证 MCP 暴露与远程执行 guardrails",
+  "type": "test",
+  "wave": 6,
+  "depends_on": [
+    "TASK-002",
+    "TASK-003",
+    "TASK-004"
+  ],
+  "read_first": [
+    "packages/shared/src/mcp/tool-factory.ts",
+    "packages/shared/src/mcp/tool-factory.test.ts",
+    "apps/web/src/app/api/mcp/admin/route.ts",
+    "packages/shared/src/uol/operations/update.ts",
+    "apps/web/src/server/uol-bindings.ts",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md"
+  ],
+  "files_to_modify": [
+    "packages/shared/src/mcp/tool-factory.test.ts",
+    "docs/deployment/binary-style-deployment.md"
+  ],
+  "action": "补充 MCP/admin guardrail 验证：read-only/denied ops 能挡住 update.apply，未绑定 stub 不暴露，文档给出生产禁用 update.apply 的配置。",
+  "implementation": {
+    "steps": [
+      "若 tool-factory.test.ts 已存在则追加用例；否则新增测试文件。",
+      "测试注册并绑定 update.status/update.apply 后，默认 tools/list 包含 update_status 和 update_apply，annotations.destructiveHint 对 apply 为 true。",
+      "测试 MCP_READ_ONLY truthy 时 update_apply 不出现，update_status 仍出现。",
+      "测试 MCP_DENIED_OPS=update.apply 时 update_apply 不出现。",
+      "测试未 bind 的 update.apply stub 不暴露。",
+      "docs/deployment/binary-style-deployment.md 增加 MCP_READ_ONLY=1 或 MCP_DENIED_OPS=update.apply 的生产建议。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "rg -n \"update_apply|MCP_READ_ONLY|MCP_DENIED_OPS|destructiveHint|isOperationBound\" packages/shared/src/mcp/tool-factory.test.ts docs/deployment/binary-style-deployment.md packages/shared/src/mcp/tool-factory.ts",
+      "pnpm --filter @repo/shared test -- src/mcp/tool-factory.test.ts",
+      "pnpm --filter @repo/shared typecheck",
+      "git diff --check -- packages/shared/src/mcp/tool-factory.test.ts docs/deployment/binary-style-deployment.md"
+    ]
+  },
+  "risks": [
+    "UOL operation 绑定后 MCP admin 可能自动暴露 destructive apply。",
+    "生产如未设置 read-only/denied ops，agent 可触发 apply。"
+  ],
+  "rollback": [
+    "还原 tool-factory.test.ts 新用例和文档 MCP guardrail 段落。"
+  ],
+  "milestone": "M1",
+  "phase": "M1-P5",
+  "status": "completed",
+  "completed_at": "2026-06-22T17:07:31.946Z"
+}

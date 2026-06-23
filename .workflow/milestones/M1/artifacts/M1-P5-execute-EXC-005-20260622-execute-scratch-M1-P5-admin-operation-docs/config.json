@@ -1,0 +1,8 @@
+{
+  "planDir": ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs",
+  "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs",
+  "autoCommit": false,
+  "maxConcurrency": 1,
+  "method": "agent",
+  "created_at": "2026-06-22T15:35:13.228Z"
+}

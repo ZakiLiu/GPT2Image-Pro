@@ -1,0 +1,79 @@
+{
+  "id": "TASK-003",
+  "title": "实现默认关闭的 Web updater wrapper 并绑定 UOL execute",
+  "type": "feature",
+  "wave": 3,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002"
+  ],
+  "read_first": [
+    "apps/web/src/server/uol-bindings.ts",
+    "apps/web/src/server/uol-init.ts",
+    "scripts/local-updater.mjs",
+    "packages/shared/src/uol/operations/update.ts",
+    "packages/shared/src/uol/errors.ts",
+    "apps/web/src/server/scheduled-jobs-response.test.ts",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md"
+  ],
+  "files_to_modify": [
+    "apps/web/src/server/updater-admin.ts",
+    "apps/web/src/server/updater-admin.test.ts",
+    "apps/web/src/server/uol-bindings.ts"
+  ],
+  "action": "新增 apps/web server-only updater wrapper：读取服务端 env 配置、无 shell 调用 local-updater、脱敏输出、解析 JSON，并把 update.* operation 绑定到 wrapper。",
+  "implementation": {
+    "steps": [
+      "新增 apps/web/src/server/updater-admin.ts，文件级注释标明仅服务端使用，不给客户端传 env 值。",
+      "配置读取：UPDATER_ENABLED truthy 才开启；UPDATER_SCRIPT_PATH 默认 process.cwd()/scripts/local-updater.mjs；UPDATER_INSTALL_ROOT、UPDATER_ENV_FILE 必须配置后 apply 才可用；UPDATER_MANIFEST_PATH 可作为 check 默认 manifest。",
+      "实现 getUpdaterStatus：返回 enabled、configured、scriptPathConfigured、installRootConfigured、envFileConfigured、disabledReason、lastKnownCurrentVersion 或 local-updater status JSON 摘要。",
+      "实现 checkUpdater：仅允许构造 [script,\"check\", \"--manifest\", manifestPath, \"--platform\", \"linux-x64\"] 或 plan/status 需要的固定 argv。",
+      "实现 applyUpdater：要求 enabled/configured、confirmVersion 与 manifest version 或输入 version 一致、artifactPath/manifestPath/runId 存在；构造 apply argv，不能接受客户端 envFile/installRoot override。",
+      "child_process 使用 spawn 或 execFile，shell:false，timeout 可配置但默认有限值；stdout/stderr 全部 redact 后再返回。",
+      "uol-bindings.ts bindExecute update.status/update.check/update.apply 到 wrapper 函数。",
+      "updater-admin.test.ts 注入 fake runner，覆盖 default-off、missing config、argv 精确、非零退出、invalid JSON、redaction、apply confirmVersion mismatch。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "rg -n 'UPDATER_ENABLED|UPDATER_SCRIPT_PATH|UPDATER_INSTALL_ROOT|UPDATER_ENV_FILE|shell:\\s*false|local-updater\\.mjs|redact|confirmVersion|bindExecute\\(\\s*\"update\\.' apps/web/src/server/updater-admin.ts apps/web/src/server/updater-admin.test.ts apps/web/src/server/uol-bindings.ts",
+      "pnpm --filter @repo/web test -- src/server/updater-admin.test.ts",
+      "pnpm --filter @repo/web typecheck",
+      "git diff --check -- apps/web/src/server/updater-admin.ts apps/web/src/server/updater-admin.test.ts apps/web/src/server/uol-bindings.ts"
+    ]
+  },
+  "risks": [
+    "wrapper 是最高风险安全边界，禁止 shell 拼接。",
+    "stdout/stderr 可能包含 secrets，必须先脱敏再进 Operation output。"
+  ],
+  "rollback": [
+    "删除 updater-admin.ts/test。",
+    "移除 uol-bindings.ts 中 update.* bindExecute。",
+    "确认 packages/shared UOL operation 仍只是不暴露的 stub。"
+  ],
+  "milestone": "M1",
+  "phase": "M1-P5",
+  "status": "completed",
+  "execution_result": {
+    "findings": "已实现默认关闭的 Web updater wrapper 与 update.* UOL late binding，覆盖 shell:false、server env 固定路径、redaction、confirmVersion 与失败路径测试。",
+    "files_modified": [
+      "apps/web/src/server/updater-admin.ts",
+      "apps/web/src/server/updater-admin.test.ts",
+      "apps/web/src/server/uol-bindings.ts",
+      ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/.summaries/TASK-003-summary.md",
+      ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/discoveries.ndjson"
+    ],
+    "tests_passed": "true",
+    "error": "",
+    "summary_file": ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs/.summaries/TASK-003-summary.md",
+    "completed_at": "2026-06-22T16:49:55.977Z",
+    "attempts": [
+      "spawn_agents_on_csv worker failed without report; root completed implementation and verification"
+    ]
+  }
+}

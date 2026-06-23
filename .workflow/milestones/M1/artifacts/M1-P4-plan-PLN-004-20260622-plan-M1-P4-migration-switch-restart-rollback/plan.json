@@ -1,0 +1,237 @@
+{
+  "id": "PLN-M1-P4-migration-switch-restart-rollback",
+  "title": "M1-P4：迁移、切换、重启与回滚闭环执行计划",
+  "scope": "phase",
+  "milestone": "M1",
+  "phase": "M1-P4",
+  "phase_name": "迁移、切换、重启与回滚闭环",
+  "created_at": "2026-06-22T20:45:00+08:00",
+  "source": {
+    "roadmap": ".workflow/roadmap.md",
+    "session": ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback",
+    "context": ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/context.md",
+    "wave_1_findings": ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/prev_context.md",
+    "discoveries": ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    "deployment_contract": "docs/deployment/binary-style-deployment.md",
+    "current_updater": "scripts/local-updater.mjs",
+    "release_helper": "scripts/binary-style-release-lib.mjs",
+    "package": "package.json",
+    "prior_plan": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+    "prior_task_sample": ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+    "systemd_examples": [
+      "deploy/systemd/gpt2image-web.service.example",
+      "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+      "deploy/systemd/gpt2image-migrate.service.example"
+    ],
+    "state_index_policy": "本 worker 不编辑 .workflow/state.json 或 .workflow/index.json。"
+  },
+  "summary": "把 M1-P3 local-updater 从安全预检推进到真实 apply/update：install releases/<version>、candidate migrator、atomic current、whitelisted systemd restart、healthcheck、application-layer rollback。数据库迁移不可自动回滚，失败 release、shared/staging 与日志保留。",
+  "approach": [
+    "沿用 local-updater.mjs 的 ESM CLI、parseArgs、dispatch、JSON stdout、自测 fixture 风格，新增 apply/update，不改变 check/download/stage/status/dry-run。",
+    "所有副作用受 shared/updater.lock 与 shared/staging/<run-id>/apply.json journal 保护。",
+    "只信任 stageArtifact 已验证的 bundleDir；正式安装先写 releases/.installing-<run-id>，复验后原子 rename 到 releases/<version>。",
+    "候选 migrator 在 releases/<version>/migrator 下运行，先于 current 切换；失败即停。",
+    "systemd 使用硬编码白名单，只允许 gpt2image-web.service 与 gpt2image-chatgpt-web-proxy.service。",
+    "healthcheck 覆盖本机 Web HTTP 与 proxy TCP；失败只恢复应用/proxy current 指针和进程。",
+    "最终以 --self-test apply 和 monorepo gates 收口，Admin/UOL/UI 留到 M1-P5。"
+  ],
+  "non_goals": [
+    "不接入 Admin Operation、UOL operation、server action、api route、MCP 或后台 UI。",
+    "不修改 image generation、credits、storage、moderation、payment、subscription、auth、API Key 或 account pool 业务。",
+    "不重启 PostgreSQL、Nginx、Docker 或任意非 GPT2Image-Pro systemd unit。",
+    "不承诺数据库自动 rollback；迁移成功后只做应用层 rollback。",
+    "不写入或打印真实 secrets，不读取输出 /etc/gpt2image/gpt2image.env 值。",
+    "不改变 Docker Compose 推荐部署路径。"
+  ],
+  "task_ids": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006",
+    "TASK-007"
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "apply safety skeleton",
+      "tasks": [
+        "TASK-001"
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "release install",
+      "tasks": [
+        "TASK-002"
+      ]
+    },
+    {
+      "wave": 3,
+      "label": "pre-switch migration",
+      "tasks": [
+        "TASK-003"
+      ]
+    },
+    {
+      "wave": 4,
+      "label": "current switch and restart",
+      "tasks": [
+        "TASK-004"
+      ]
+    },
+    {
+      "wave": 5,
+      "label": "healthcheck rollback",
+      "tasks": [
+        "TASK-005"
+      ]
+    },
+    {
+      "wave": 6,
+      "label": "apply self-test",
+      "tasks": [
+        "TASK-006"
+      ]
+    },
+    {
+      "wave": 7,
+      "label": "docs package gates",
+      "tasks": [
+        "TASK-007"
+      ]
+    }
+  ],
+  "dependencies": {
+    "TASK-001": [],
+    "TASK-002": [
+      "TASK-001"
+    ],
+    "TASK-003": [
+      "TASK-002"
+    ],
+    "TASK-004": [
+      "TASK-003"
+    ],
+    "TASK-005": [
+      "TASK-004"
+    ],
+    "TASK-006": [
+      "TASK-001",
+      "TASK-002",
+      "TASK-003",
+      "TASK-004",
+      "TASK-005"
+    ],
+    "TASK-007": [
+      "TASK-001",
+      "TASK-002",
+      "TASK-003",
+      "TASK-004",
+      "TASK-005",
+      "TASK-006"
+    ]
+  },
+  "readiness_gate": {
+    "status": "passed",
+    "checks": [
+      "已读取 context.md、prev_context.md、discoveries.ndjson、roadmap、deployment doc、local-updater、release lib、package、P3 plan 与 P3 TASK-005。",
+      "Wave 1 architecture、patterns、tests、risks 均完成，发现已并入任务分解。",
+      "M1-P3 已完成 check/download/stage/lock/self-test，P4 可以从 stageArtifact 后串接真实 apply。",
+      "服务边界清楚：只管理 gpt2image-web.service 与 gpt2image-chatgpt-web-proxy.service；migrator 是 pre_switch 一次性步骤。",
+      "本 worker 只写计划 artifact，不编辑 state.json/index.json。"
+    ]
+  },
+  "confidence": {
+    "overall": 0.84,
+    "factor_model": "五维等权：context_coverage、scope_clarity、implementation_path、verification_strength、operational_safety。",
+    "factors": {
+      "context_coverage": {
+        "score": 0.92,
+        "evidence": "必读文件与 P3 任务样例、systemd examples 均已读取。"
+      },
+      "scope_clarity": {
+        "score": 0.9,
+        "evidence": "M1-P4 本地 updater apply 与 M1-P5 Admin/UOL/UI 边界明确。"
+      },
+      "implementation_path": {
+        "score": 0.82,
+        "evidence": "已有 stageArtifact、shared/updater.lock、assertInsideInstallRoot、preflightRuntimeEnv 和 self-test harness。"
+      },
+      "verification_strength": {
+        "score": 0.83,
+        "evidence": "每个 TASK 均有 rg/node/git 命令化 convergence.criteria，最终 gates 覆盖 self-test apply。"
+      },
+      "operational_safety": {
+        "score": 0.75,
+        "evidence": "真实 current、releases、systemd 与 DB migration 风险高，计划用白名单、journal、rollback 和负向自测缓解。"
+      }
+    },
+    "notes": "剩余不确定性集中在目标机 systemd、Node/pnpm migrator runtime 和数据库迁移可逆性。"
+  },
+  "pressure_pass": {
+    "highest_complexity_task": "TASK-005",
+    "reason": "current 已切换后 healthcheck/rollback 是线上可用性最高风险点。",
+    "concerns": [
+      "previous_current 未落盘会无法恢复",
+      "healthcheck 过浅会误判成功",
+      "rollback 误重启非白名单服务会影响同机服务",
+      "DB migration 成功后 schema 不一定可逆",
+      "清理 failed release 会丢证据"
+    ],
+    "mitigations": [
+      "apply.json 必须先记录 previous_current",
+      "Web HTTP 和 proxy TCP 必测",
+      "复用 systemd 白名单",
+      "db_migration_irreversible=true 写入 summary/journal/docs",
+      "保留 failed release、shared/staging 和日志"
+    ],
+    "verdict": "可执行，但 TASK-004 与 TASK-005 必须串行；TASK-006 healthcheck rollback fixture 是强门禁。"
+  },
+  "collision_detection": {
+    "status": "passed",
+    "checked": [
+      "git status --short -- .workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback .workflow/state.json .workflow/index.json",
+      "目标目录存在但无 plan.json 或 TASK 文件。"
+    ],
+    "state_index_edited": false,
+    "same_phase_plan_found": false,
+    "shared_source_files_serialized": [
+      "scripts/local-updater.mjs",
+      "scripts/binary-style-release-lib.mjs",
+      "docs/deployment/binary-style-deployment.md",
+      "package.json"
+    ],
+    "notes": "未来生产文件改动全部串行依赖；本 worker 不 stage/commit。"
+  },
+  "verification": {
+    "plan_artifacts": [
+      ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+      ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.task/TASK-001.json",
+      ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.task/TASK-002.json",
+      ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.task/TASK-003.json",
+      ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.task/TASK-004.json",
+      ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.task/TASK-005.json",
+      ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.task/TASK-006.json",
+      ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.task/TASK-007.json"
+    ],
+    "artifact_validation": "node -e \"const fs=require('fs'); const base='.workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback'; JSON.parse(fs.readFileSync(base+'/plan.json','utf8')); for(let i=1;i<=7;i++){ const id='TASK-'+String(i).padStart(3,'0'); const t=JSON.parse(fs.readFileSync(base+'/.task/'+id+'.json','utf8')); if(!t.read_first||!t.convergence||!Array.isArray(t.convergence.criteria)) throw new Error(id); }\"",
+    "expected_execution_gates": [
+      "node --check scripts/local-updater.mjs",
+      "node scripts/local-updater.mjs --self-test",
+      "node scripts/local-updater.mjs --self-test apply",
+      "node scripts/verify-binary-release-bundle.mjs --self-test",
+      "pnpm verify:binary-contract",
+      "pnpm lint",
+      "pnpm test",
+      "pnpm typecheck",
+      "git diff --check -- scripts/local-updater.mjs scripts/binary-style-release-lib.mjs package.json docs/deployment/binary-style-deployment.md .workflow/roadmap.md"
+    ],
+    "grep_boundary_checks": [
+      "rg -n \"gpt2image-web\\.service|gpt2image-chatgpt-web-proxy\\.service|shared/updater\\.lock|shared/staging|releases|current|/etc/gpt2image/gpt2image\\.env\" scripts/local-updater.mjs docs/deployment/binary-style-deployment.md package.json",
+      "rg -n \"Admin Operation|UOL operation|server action|api route|后台 UI|M1-P5\" docs/deployment/binary-style-deployment.md"
+    ]
+  },
+  "next_command": "$maestro-execute .workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback"
+}

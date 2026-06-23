@@ -1,0 +1,66 @@
+{
+  "id": "TASK-003",
+  "title": "实现 release manifest fetch/check 与版本兼容决策",
+  "type": "feature",
+  "milestone": "M1",
+  "phase": "M1-P3",
+  "wave": 3,
+  "depends_on": [
+    "TASK-002"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    "scripts/binary-style-release-lib.mjs",
+    "docs/deployment/binary-style-manifest.schema.json",
+    "docs/deployment/binary-style-manifest.example.json",
+    "package.json",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/prev_context.md",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/context.md",
+    "docs/deployment/binary-style-deployment.md"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "在 local updater 中实现 manifest 读取、fetch、schema baseline 校验、platform 校验、version 与 minimum_supported_version 决策，并用本地 fixture/self-test 覆盖 upgrade、no-update、downgrade、minimum unsupported 和 platform mismatch。",
+  "implementation": {
+    "steps": [
+      "实现 readManifestSource：支持 --manifest 本地路径、file:// URL 和 https:// URL；测试默认使用本地 fixture，不依赖真实网络。",
+      "复用 binary-style-release-lib.mjs 的 readJson/verifyManifest/verifySchemaBaseline，check 命令必须校验 platform=linux-x64、artifact_sha256 和服务字段。",
+      "实现 parseProjectVersion、compareProjectVersions、decideUpdate 纯函数，支持 vMAJOR.MINOR.PATCH 与 alpha/beta/rc.N，正式版高于同版本 prerelease。",
+      "check/plan 输出 JSON summary：current_version、available_version、minimum_supported_version、decision、reason、artifact_url、artifact_sha256，不输出 secrets。",
+      "新增 --self-test check，使用 mkdtemp 写入本地 manifest fixture 并覆盖 upgrade、same version、downgrade、minimum unsupported、platform mismatch、invalid checksum 格式。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node scripts/local-updater.mjs --self-test check",
+      "node scripts/local-updater.mjs check --manifest docs/deployment/binary-style-manifest.example.json --current-version v0.5.6 --platform linux-x64 --dry-run",
+      "node -e \"import('./scripts/local-updater.mjs').then((m)=>{ for (const k of ['compareProjectVersions','decideUpdate','readManifestSource']) { if (typeof m[k] !== 'function') throw new Error(k); } })\"",
+      "rg -n \"minimum_supported_version|compareProjectVersions|decideUpdate|readManifestSource|artifact_sha256\" scripts/local-updater.mjs",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "版本比较若把 prerelease 排序写错，可能允许 downgrade 或误拒正式版升级。",
+    "真实 https fetch 的错误处理若吞异常，会让 check 给出不可定位结果。",
+    "输出 manifest 原文可能暴露未来新增字段；必须只输出白名单 summary。"
+  ],
+  "rollback": [
+    "还原 scripts/local-updater.mjs 到 TASK-002 skeleton。",
+    "保留 package.json scripts 不动。",
+    "重新运行 node scripts/local-updater.mjs --self-test cli 确认 skeleton 仍可执行。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T15:29:53+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core/discoveries.ndjson;.workflow/scratch/20260622-plan-M1-P3-local-updater-core/.summaries/TASK-003-summary.md",
+    "tests_passed": "true",
+    "findings": "接手补完 manifest check 与版本兼容决策；self-test check、示例 manifest check、导出函数检查、grep 与 diff check 全部通过。",
+    "error": ""
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "id": "TASK-006",
+  "title": "新增 --self-test apply 覆盖迁移失败、健康检查回滚、白名单、symlink、安全脱敏和 stale lock",
+  "type": "test",
+  "milestone": "M1",
+  "phase": "M1-P4",
+  "wave": 6,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005"
+  ],
+  "read_first": [
+    "scripts/local-updater.mjs",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    "docs/deployment/binary-style-deployment.md",
+    "scripts/binary-style-release-lib.mjs",
+    "package.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+    "deploy/systemd/gpt2image-web.service.example",
+    "deploy/systemd/gpt2image-chatgpt-web-proxy.service.example",
+    "deploy/systemd/gpt2image-migrate.service.example"
+  ],
+  "files_to_modify": [
+    "scripts/local-updater.mjs"
+  ],
+  "action": "补齐 apply 自测 fixture，不调用真实 systemctl、真实数据库或生产 URL。 必须显式处理 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env，并拒绝 PostgreSQL、Nginx、Docker 与 Admin/UOL/UI。",
+  "implementation": {
+    "steps": [
+      "扩展 self-test allowlist，使 node scripts/local-updater.mjs --self-test apply 可运行，并纳入 node scripts/local-updater.mjs --self-test all。",
+      "fixture: migration failure。候选 migrator 非零退出，断言 current 不变、白名单服务无 restart、apply.json 记录失败、shared/updater.lock 释放。",
+      "fixture: healthcheck rollback。切到 releases/<version> 后注入 Web 或 proxy healthcheck 失败，断言 current 恢复 previous_current，两个白名单服务再次 restart，db_migration_irreversible=true。",
+      "fixture: service whitelist。postgresql.service、nginx.service、docker.service、arbitrary.service 在 restart 前失败。",
+      "fixture: symlink escape。current 或 releases/<version> 指向 installRoot 外、shared/staging 逃逸、Windows drive prefix、../ 均失败。",
+      "fixture: secret redaction。DATABASE_URL、BETTER_AUTH_SECRET、CHATGPT_WEB_PROXY_SECRET、Authorization、Cookie 不得出现在 stdout、stderr、apply.json 或 updater log。",
+      "fixture: stale lock reporting。已有 shared/updater.lock/metadata.json 时报告 lockPath、pid、created_at 和人工处理建议，但不自动删除未知 lock。",
+      "边界复核：代码和日志中必须保留 gpt2image-web.service、gpt2image-chatgpt-web-proxy.service、current、releases、shared/staging、shared/updater.lock、/etc/gpt2image/gpt2image.env 这些显式名词。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "node --check scripts/local-updater.mjs",
+      "node scripts/local-updater.mjs --self-test apply",
+      "node scripts/local-updater.mjs --self-test",
+      "rg -n \"runApplySelfTest|migration failure|healthcheck rollback|service whitelist|symlink escape|secret redaction|stale lock|shared/updater\\.lock|db_migration_irreversible\" scripts/local-updater.mjs",
+      "node -e \"import('./scripts/local-updater.mjs').then((m)=>{ if (typeof m.runApplySelfTest !== 'function') throw new Error('runApplySelfTest'); })\"",
+      "git diff --check -- scripts/local-updater.mjs"
+    ]
+  },
+  "risks": [
+    "self-test 若调用真实 systemctl 或数据库，会破坏测试隔离。",
+    "只测成功路径无法证明 rollback 和白名单。",
+    "脱敏测试如果不覆盖 JSON、日志和 stderr，仍可能漏 secrets。"
+  ],
+  "rollback": [
+    "移除 runApplySelfTest 与 self-test apply 分发。",
+    "保留 production code 时至少运行 node scripts/local-updater.mjs --self-test stage。",
+    "删除临时 fixture installRoot，确认没有遗留 shared/updater.lock。"
+  ],
+  "status": "completed",
+  "completed_at": "2026-06-22T22:20:00+08:00",
+  "execution": {
+    "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    "result": "completed",
+    "files_modified": "scripts/local-updater.mjs;.workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/.summaries/TASK-006-summary.md;.workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/discoveries.ndjson",
+    "tests_passed": "true",
+    "findings": "新增 runApplySelfTest 与 --self-test apply，并纳入默认 --self-test；覆盖 migration failure、healthcheck rollback、service whitelist、symlink escape、secret redaction、stale lock，均不调用真实 systemctl/DB/生产 URL。criteria 全通过。",
+    "error": ""
+  }
+}

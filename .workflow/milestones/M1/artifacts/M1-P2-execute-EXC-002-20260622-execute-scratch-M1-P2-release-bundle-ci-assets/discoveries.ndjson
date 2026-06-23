@@ -1,0 +1,2 @@
+{"worker":"TASK-006","type":"implementation_note","ts":"2026-06-22T12:19:57+08:00","data":{"name":"bundle-denylist-root-only","files":["scripts/build-binary-release-bundle.mjs","scripts/verify-binary-release-bundle.mjs"],"description":"敏感运行态目录只按 bundle 顶层目录禁入，避免误伤 Next route path 中的 api/storage。"}}
+{"worker":"TASK-006","type":"implementation_note","ts":"2026-06-22T12:19:57+08:00","data":{"name":"repo-relative-sha256-target","files":["scripts/build-binary-release-bundle.mjs"],"description":".sha256 写入仓库相对 artifact 路径，使 sha256sum -c dist/.../*.sha256 可从仓库根直接执行。"}}

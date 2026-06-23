@@ -1,0 +1,30 @@
+{
+  "milestone": "M1",
+  "created_at": "2026-06-23T13:53:31+08:00",
+  "sources_to_clean": [
+    ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+    ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+    ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs"
+  ],
+  "cleaned_at": "2026-06-23T14:00:16+08:00",
+  "removed": [
+    ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec",
+    ".workflow/.csv-wave/20260621-execute-scratch-M1-P1-deployment-contract-artifact-spec",
+    ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+    ".workflow/scratch/20260622-plan-M1-P3-local-updater-core",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P3-local-updater-core",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback",
+    ".workflow/scratch/20260622-plan-M1-P5-admin-operation-docs",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P5-admin-operation-docs"
+  ],
+  "skipped": []
+}

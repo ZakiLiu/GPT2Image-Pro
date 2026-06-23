@@ -59,3 +59,20 @@ M1-P4 apply/update 只恢复应用层 current 与 gpt2image-web.service、gpt2im
 M1-P5 将 online updater 暴露为默认关闭的 Admin Operation：update.status/update.check/update.apply 先注册到 UOL，apps/web 通过 server-only wrapper late binding 到 local-updater.mjs。生产必须由服务端 env 提供 UPDATER_ENABLED、UPDATER_SCRIPT_PATH、UPDATER_INSTALL_ROOT、UPDATER_ENV_FILE；请求体不得覆盖 install root 或 env file。MCP 生产侧可用 MCP_READ_ONLY=1 或 MCP_DENIED_OPS=update.apply 阻断 destructive apply。
 
 </spec-entry>
+
+<spec-entry category="learning" keywords="milestone-audit,state-metadata,artifact-registry,status-drift" date="2026-06-23" title="M1 milestone audit status drift" description="Milestone completion should trust artifact registry execution evidence before roadmap status labels" source="milestone-complete:M1">
+
+### M1 milestone audit status drift
+
+M1 审计确认 `.workflow/state.json` 中 M1 与各 phase 的 `status` 仍显示 `planned`，但同一 registry 下 5 个 execute artifacts 均为 `completed`，且 result CSV 全部任务完成。后续 milestone completion 应以 artifact registry 的 plan/execute 存在性、execute status 和 results.csv 完整性作为归档前置证据，同时把 milestone/phase 状态在 complete 阶段同步为 `completed`，避免报告和状态面板出现漂移。
+
+</spec-entry>
+
+
+<spec-entry category="learning" keywords="binary-style,updater,uol,admin,mcp,default-off,server-env" date="2026-06-23" title="M1 updater remote execution safety boundary" description="Online updater exposure must stay default-off and route through UOL with server-side path ownership" source="milestone-complete:M1">
+
+### M1 updater remote execution safety boundary
+
+M1 最终闭环显示，binary-style online updater 可以暴露到后台与 MCP，但必须保持默认关闭：`update.status`、`update.check`、`update.apply` 先注册为 UOL operation，web 侧只做 late binding 和 thin admin action，`UPDATER_SCRIPT_PATH`、`UPDATER_INSTALL_ROOT`、`UPDATER_ENV_FILE` 只能来自服务端环境变量，请求体不得覆盖路径；`update.apply` 需要 `confirmVersion` 与 `runId`，MCP 生产侧默认建议 `MCP_READ_ONLY=1` 或 `MCP_DENIED_OPS=update.apply`。
+
+</spec-entry>

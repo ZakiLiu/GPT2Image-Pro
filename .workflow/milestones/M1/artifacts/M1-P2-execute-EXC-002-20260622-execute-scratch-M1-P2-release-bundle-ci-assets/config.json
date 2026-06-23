@@ -1,0 +1,8 @@
+{
+  "plan_id": "PLN-M1-P2-release-bundle-ci-assets",
+  "generated_at": "2026-06-22T11:26:54.2603760+08:00",
+  "session": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets",
+  "phase_dir": ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets",
+  "task_count": 6,
+  "waves": 6
+}

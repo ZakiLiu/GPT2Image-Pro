@@ -1,0 +1,76 @@
+{
+  "id": "TASK-007",
+  "title": "文档收口与 M1-P5 final quality gate",
+  "type": "docs",
+  "wave": 7,
+  "depends_on": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006"
+  ],
+  "read_first": [
+    "README.md",
+    "docs/CI-CD.md",
+    "docs/deployment/binary-style-deployment.md",
+    "scripts/verify-binary-deployment-contract.mjs",
+    "package.json",
+    "scripts/local-updater.mjs",
+    "packages/shared/src/uol/operations/update.ts",
+    "apps/web/src/server/updater-admin.ts",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/prev_context.md",
+    ".workflow/.csv-wave/20260622-plan-M1-P5-admin-operation-docs/discoveries.ndjson",
+    ".workflow/roadmap.md",
+    ".workflow/scratch/20260622-plan-M1-P4-migration-switch-restart-rollback/plan.json",
+    ".workflow/.csv-wave/20260622-execute-scratch-M1-P4-migration-switch-restart-rollback/context.md"
+  ],
+  "files_to_modify": [
+    "README.md",
+    "docs/CI-CD.md",
+    "docs/deployment/binary-style-deployment.md",
+    "scripts/verify-binary-deployment-contract.mjs"
+  ],
+  "action": "更新 README、CI/CD、binary-style deployment 与 contract verifier 文案，标记 M1-P5 后 Admin Operation/后台入口已具备默认关闭的查看与执行能力，并跑全量质量门。",
+  "implementation": {
+    "steps": [
+      "README binary-style release assets 段落更新：M1-P5 提供默认关闭的后台更新入口；Docker Compose 仍是推荐新部署方式。",
+      "docs/CI-CD.md 更新 docker-release binary-style 边界：assets 包含 updater runtime scripts；后台入口默认关闭，需要 UPDATER_* 配置。",
+      "docs/deployment/binary-style-deployment.md 增加 M1-P5 Admin Operation 与后台入口 runbook：UPDATER_ENABLED、UPDATER_SCRIPT_PATH、UPDATER_INSTALL_ROOT、UPDATER_ENV_FILE、UPDATER_MANIFEST_PATH、MCP_READ_ONLY/MCP_DENIED_OPS。",
+      "scripts/verify-binary-deployment-contract.mjs 若仍检查 M1-P2 历史短语，保留历史短语并新增 M1-P5 文档断言，避免误判。",
+      "运行 final gates；不要修改 CLAUDE.md/AGENTS.md，除非 docs mirror 另有明确要求。",
+      "边界检查：git diff --name-only 不应包含 payment/credits/image-generation core 业务文件。"
+    ]
+  },
+  "convergence": {
+    "criteria": [
+      "rg -n \"M1-P5|Admin Operation|update.check|update.status|update.apply|UPDATER_ENABLED|UPDATER_SCRIPT_PATH|UPDATER_INSTALL_ROOT|UPDATER_ENV_FILE|MCP_DENIED_OPS|Docker Compose\" README.md docs/CI-CD.md docs/deployment/binary-style-deployment.md scripts/verify-binary-deployment-contract.mjs",
+      "node --check scripts/local-updater.mjs",
+      "node scripts/local-updater.mjs --self-test",
+      "node scripts/local-updater.mjs --self-test apply",
+      "node scripts/verify-binary-release-bundle.mjs --self-test",
+      "pnpm verify:binary-contract",
+      "pnpm --filter @repo/shared test -- src/uol/tests/update.test.ts src/mcp/tool-factory.test.ts",
+      "pnpm --filter @repo/web test -- src/server/updater-admin.test.ts",
+      "pnpm lint",
+      "pnpm test",
+      "pnpm typecheck",
+      "git diff --check",
+      "node -e \"const cp=require('child_process'); const out=cp.execSync('git diff --name-only -- apps/web/src/features/image-generation packages/shared/src/credits packages/shared/src/payment packages/shared/src/storage packages/shared/src/moderation').toString().trim(); if(out) throw new Error(out);\""
+    ]
+  },
+  "risks": [
+    "文档若删除 M1-P2 历史短语，会打破 verify:binary-contract。",
+    "README 若暗示 Docker Compose 被替代，会违背路线图。"
+  ],
+  "rollback": [
+    "还原 README、docs/CI-CD、deployment docs 与 verifier 文案。",
+    "保留通过的 code/test 改动后重跑 pnpm verify:binary-contract。"
+  ],
+  "milestone": "M1",
+  "phase": "M1-P5",
+  "status": "completed",
+  "completed_at": "2026-06-22T17:21:55.254Z"
+}

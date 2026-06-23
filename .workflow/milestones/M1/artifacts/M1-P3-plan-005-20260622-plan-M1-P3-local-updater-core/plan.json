@@ -1,0 +1,209 @@
+{
+  "id": "PLN-M1-P3-local-updater-core",
+  "title": "M1-P3：本地 Updater CLI / Script Core 执行计划",
+  "scope": "phase",
+  "milestone": "M1",
+  "phase": "M1-P3",
+  "phase_name": "本地 Updater CLI / Script Core",
+  "created_at": "2026-06-22T14:15:38+08:00",
+  "source": {
+    "roadmap": ".workflow/roadmap.md",
+    "session": ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core",
+    "wave_1_findings": ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/prev_context.md",
+    "previous_plan": [
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json"
+    ],
+    "previous_execution": ".workflow/.csv-wave/20260622-execute-scratch-M1-P2-release-bundle-ci-assets/context.md",
+    "context": ".workflow/.csv-wave/20260622-plan-M1-P3-local-updater-core/context.md",
+    "state_snapshot": ".workflow/state.json",
+    "index_snapshot": ".workflow/index.json"
+  },
+  "summary": "只覆盖 M1-P3：在 M1-P2 binary-style release assets 已完成的基础上，规划本地可手动执行的 updater Node.js CLI/script core。该阶段实现 check、download、verify、stage、lock 与 dry-run/self-test 能力，但不切换 current symlink，不执行 migrator，不调用 systemd，不做 healthcheck rollback，也不接入后台 Admin/UOL。",
+  "approach": [
+    "先把 verify-binary-release-bundle.mjs 中可复用的 manifest、SHA256、required paths、denied paths 和 JSON 断言逻辑抽到 scripts/binary-style-release-lib.mjs，保持现有 verifier CLI 与 self-test 行为不变。",
+    "新增 scripts/local-updater.mjs 作为唯一 CLI 编排入口，沿用 scripts/*.mjs 的 shebang、ESM、Node 内置模块、中文 JSDoc、parseArgs Map 与 main().catch 风格。",
+    "check/plan/status/dry-run 先支持本地 manifest fixture 和显式 current-version，避免 Phase 3 依赖真实 GitHub Release 网络状态；fetchManifest 只负责读取 URL 或本地文件，版本判断用纯函数覆盖。",
+    "download 使用 .partial 写入、失败清理、成功后原子 rename，再通过 manifest artifact_sha256 与 detached checksum/sha256 helper 复验；任何未验证 .partial 文件都不能被当作 artifact。",
+    "stage 只写入 installRoot/shared/staging/<version-or-run-id>，通过 assertInside/realpath/path traversal 检查限制解包和清理边界，并只做必需文件、权限和 env 文件存在性预检。",
+    "最终以 updater self-test、bundle verifier self-test、binary contract verifier、diff check 和文档 grep 收口；文档明确 Phase 4/5 仍未实现。"
+  ],
+  "non_goals": [
+    "不实现 current symlink 切换、releases/<version> 正式安装、systemd restart、healthcheck rollback 或 migrator 执行。",
+    "不实现 Admin Operation、后台 UI、server action、api route、MCP 或 UOL update operation。",
+    "不改变 Docker Compose 推荐部署方式，不删除 GHCR/compose release 流程。",
+    "不修改 image generation、credits、storage、moderation、payment、subscription、auth、API Key 或 account pool 业务逻辑。",
+    "不读取、打印、复制或持久化 .env 内容；env preflight 只检查文件存在性、权限可读性和必需变量名输入要求，不输出真实值。",
+    "不新增第三方依赖；除非执行时发现 Node 内置能力无法满足 checksum、download、tar/zip 解包和 self-test。"
+  ],
+  "task_ids": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006"
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "Phase 3 helper extraction",
+      "tasks": [
+        "TASK-001"
+      ]
+    },
+    {
+      "wave": 2,
+      "label": "Phase 3 CLI skeleton",
+      "tasks": [
+        "TASK-002"
+      ]
+    },
+    {
+      "wave": 3,
+      "label": "Phase 3 manifest check and version decision",
+      "tasks": [
+        "TASK-003"
+      ]
+    },
+    {
+      "wave": 4,
+      "label": "Phase 3 download and artifact verification",
+      "tasks": [
+        "TASK-004"
+      ]
+    },
+    {
+      "wave": 5,
+      "label": "Phase 3 lock and staging preflight",
+      "tasks": [
+        "TASK-005"
+      ]
+    },
+    {
+      "wave": 6,
+      "label": "Phase 3 docs and final gates",
+      "tasks": [
+        "TASK-006"
+      ]
+    }
+  ],
+  "dependencies": {
+    "TASK-001": [],
+    "TASK-002": [
+      "TASK-001"
+    ],
+    "TASK-003": [
+      "TASK-002"
+    ],
+    "TASK-004": [
+      "TASK-001",
+      "TASK-003"
+    ],
+    "TASK-005": [
+      "TASK-001",
+      "TASK-004"
+    ],
+    "TASK-006": [
+      "TASK-001",
+      "TASK-002",
+      "TASK-003",
+      "TASK-004",
+      "TASK-005"
+    ]
+  },
+  "readiness_gate": {
+    "status": "passed",
+    "checks": [
+      "Wave 1 findings for architecture、patterns、tests、risks all completed and were consumed from prev_context.md.",
+      "M1-P2 execution context reports 6 / 6 tasks completed with verify:binary-contract、verify-binary-bundle self-test、build:web、Go build、bundle build/verify、sha256sum、tar/unzip and git diff --check evidence.",
+      "state.json and index.json currently register M1-P1 and M1-P2 plan/execution artifacts only; no M1-P3 plan artifact is registered in this worker step because the row explicitly forbids writing state.json or index.json.",
+      "Phase boundary is clear: M1-P3 implements local dry-run updater core only; M1-P4 owns migration, switching, restart, healthcheck and rollback; M1-P5 owns Admin/UOL/UI.",
+      "Project constraints require no emoji, no secrets, no broad git add, and no modification outside the requested plan artifact paths in this worker step."
+    ]
+  },
+  "confidence": {
+    "overall": 0.86,
+    "factor_model": "五维加权模型：context_coverage、scope_clarity、implementation_clarity、verification_strength、rollback_safety 各 20%，overall 为算术平均。",
+    "factors": {
+      "context_coverage": {
+        "score": 0.92,
+        "evidence": "已读取 M1-P3 context、Wave 1 findings、roadmap、state/index、M1-P1/P2 plans、M1-P2 execution、deployment docs、manifest schema/example、bundle builder/verifier 与 package scripts。"
+      },
+      "scope_clarity": {
+        "score": 0.94,
+        "evidence": "roadmap 和 context 明确 Phase 3 只做 check/download/verify/stage/lock/dry-run，不做 Phase 4/5。"
+      },
+      "implementation_clarity": {
+        "score": 0.84,
+        "evidence": "现有 Node ESM scripts 提供 parseArgs、sha256File、verifyManifest、verifyBundle、assertInside、self-test 等可复用模式。"
+      },
+      "verification_strength": {
+        "score": 0.86,
+        "evidence": "可通过 updater self-test、bundle verifier self-test、contract verifier、rg 与 git diff --check 做命令化收口。"
+      },
+      "rollback_safety": {
+        "score": 0.74,
+        "evidence": "P3 不触碰 current、systemd、migrator 或 releases 正式目录；风险集中在 staging 清理与 archive path traversal，需要 TASK-005 压力检查。"
+      }
+    },
+    "notes": "主要不确定性来自未来执行时 tar/zip 解包路径遍历防御与本地/远端 manifest fetch 抽象；通过 pure function self-test、.partial 清理测试、lock/stage fixture 和 Phase 4 禁入检查降低风险。"
+  },
+  "pressure_pass": {
+    "highest_complexity_task": "TASK-005",
+    "reason": "lock + stage 同时处理并发、filesystem 边界、archive 解包、staging cleanup 和 env preflight，是最容易影响当前运行版本的 Phase 3 任务。",
+    "concerns": [
+      "path traversal 或绝对路径 archive entry 可能把文件写出 shared/staging。",
+      "cleanup 如果没有 assertInside 保护，可能误删 installRoot、shared 或 current。",
+      "lock 若不是原子创建，两个 updater 进程可能并发写同一 staging。",
+      "env preflight 若读取或打印 .env 内容，会违反 secrets 边界。",
+      "执行者可能把 stage 扩展成 releases/current/systemd/migrator，这是 Phase 4 行为。"
+    ],
+    "mitigations": [
+      "TASK-005 必须实现 assertInsideInstallRoot 与 archive entry 归一化检查，并用 self-test 覆盖 ../、绝对路径和 Windows drive 风格路径。",
+      "cleanup 只允许删除本次 shared/staging/<run-id> 子目录，convergence 通过 self-test stage-cleanup 验证。",
+      "lock 使用 mkdir 或 open wx 原子语义；self-test 创建第二把锁必须失败。",
+      "env preflight 只检查文件存在和变量名集合，不输出变量值；文档也只写占位命令。",
+      "convergence 禁止出现 systemctl、db:migrate、healthcheck rollback 和 current symlink mutation 的 Phase 4 行为。"
+    ],
+    "verdict": "可执行，但 TASK-005 必须在 TASK-004 之后串行执行，并以 negative self-test 作为合并前条件。"
+  },
+  "collision_detection": {
+    "status": "passed",
+    "checked_files": [
+      ".workflow/state.json",
+      ".workflow/index.json",
+      ".workflow/scratch/20260621-plan-M1-P1-deployment-contract-artifact-spec/plan.json",
+      ".workflow/scratch/20260622-plan-M1-P2-release-bundle-ci-assets/plan.json"
+    ],
+    "same_phase_plan_found": false,
+    "shared_source_files_serialized": [
+      "scripts/verify-binary-release-bundle.mjs",
+      "package.json",
+      "docs/deployment/binary-style-deployment.md",
+      "scripts/local-updater.mjs"
+    ],
+    "notes": "M1-P3 target scratch directory only existed with .task directory before this worker wrote artifacts. Planned execution tasks serialize shared scripts and docs through depends_on to avoid concurrent overwrite."
+  },
+  "verification": {
+    "plan_artifacts": [
+      ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/plan.json",
+      ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-001.json",
+      ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-002.json",
+      ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-003.json",
+      ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-004.json",
+      ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-005.json",
+      ".workflow/scratch/20260622-plan-M1-P3-local-updater-core/.task/TASK-006.json"
+    ],
+    "artifact_validation": "node -e \"const fs=require('fs'); const base='.workflow/scratch/20260622-plan-M1-P3-local-updater-core'; JSON.parse(fs.readFileSync(base + '/plan.json','utf8')); for (let i=1;i<=6;i++){ const id='TASK-' + String(i).padStart(3,'0'); JSON.parse(fs.readFileSync(base + '/.task/' + id + '.json','utf8')); }\"",
+    "expected_execution_gates": [
+      "node scripts/verify-binary-release-bundle.mjs --self-test",
+      "node scripts/local-updater.mjs --self-test",
+      "pnpm verify:binary-contract",
+      "pnpm verify:binary-bundle -- --bundle-dir dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64 --manifest dist/binary-style/v0.0.0-alpha.0/manifest.json --artifact dist/binary-style/v0.0.0-alpha.0/gpt2image-pro-v0.0.0-alpha.0-linux-x64.tar.gz",
+      "git diff --check -- scripts/binary-style-release-lib.mjs scripts/verify-binary-release-bundle.mjs scripts/local-updater.mjs package.json docs/deployment/binary-style-deployment.md",
+      "rg -n \"updater:check|updater:plan|updater:status|updater:dry-run|shared/staging|updater.lock|Phase 4\" docs/deployment/binary-style-deployment.md package.json"
+    ]
+  },
+  "next_command": "$maestro-execute .workflow/scratch/20260622-plan-M1-P3-local-updater-core"
+}
