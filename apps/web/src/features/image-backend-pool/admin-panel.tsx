@@ -78,6 +78,7 @@ import {
   importImageBackendWebAccountsFromAccessTokensAction,
   deleteAdobeAccountAction,
   importAdobeAccountAction,
+  importAdobeAccountsAction,
   listAdobeAccountsAction,
   refreshImageBackendAccountInfoAction,
   refreshImageBackendAccountsInfoAction,
@@ -99,6 +100,7 @@ import {
   testImageBackendApiAction,
   updateSub2ApiAutoSyncTaskOptionsAction,
 } from "./actions";
+import { ChatgptRegisterTab } from "./chatgpt-register-tab";
 import { parseImportTokensText } from "./import-token-parser";
 import type {
   ImageBackendApiInterfaceMode,
@@ -178,6 +180,8 @@ type Api = {
   failureCooldownEnabled: boolean;
   priority: number;
   concurrency: number;
+  adobeSourced: boolean;
+  billingMultiplier: number;
   status: string;
   successCount: number;
   failCount: number;
@@ -278,7 +282,13 @@ type Sub2ApiAutoSyncTask = {
   };
 };
 
-type BackendPoolTab = "groups" | "accounts" | "apis" | "adobe" | "import";
+type BackendPoolTab =
+  | "groups"
+  | "accounts"
+  | "apis"
+  | "adobe"
+  | "import"
+  | "register";
 
 type SyncProgressState = {
   status: "idle" | "running" | "success" | "error";
@@ -851,6 +861,10 @@ export function ImageBackendPoolAdminPanel({
     failureCooldownEnabled: false,
     priority: 50,
     concurrency: 10,
+    // Adobe 来源：上游实为 Adobe 的 gpt 格式 api（计费吃成员倍率 + 进 firefly 候选）。
+    adobeSourced: false,
+    // 成员计费倍率（仅 adobeSourced 时生效），字符串便于输入框编辑。
+    billingMultiplier: "1",
   });
   const [adobeForm, setAdobeForm] = useState({
     id: "",
@@ -1164,6 +1178,8 @@ export function ImageBackendPoolAdminPanel({
       failureCooldownEnabled: false,
       priority: 50,
       concurrency: 10,
+      adobeSourced: false,
+      billingMultiplier: "1",
     });
 
   const resetManualImportForm = () => {
@@ -1315,6 +1331,8 @@ export function ImageBackendPoolAdminPanel({
       failureCooldownEnabled: api.failureCooldownEnabled,
       priority: api.priority,
       concurrency: api.concurrency,
+      adobeSourced: api.adobeSourced ?? false,
+      billingMultiplier: String(api.billingMultiplier ?? "1"),
     });
   };
 
@@ -1508,14 +1526,27 @@ export function ImageBackendPoolAdminPanel({
     isPending: isImportingWebAccessTokens,
   } = useAction(importImageBackendWebAccountsFromAccessTokensAction, {
     onSuccess: ({ data }) => {
-      const prefix = data?.message
-        ? `${data.message} `
-        : `导入完成：提取 Web AT ${data?.sourceCount || 0} 个，`;
-      toast.success(
-        `${prefix}写入 ${
-          data?.syncedCount || 0
-        } 个，失败 ${data?.failed || 0} 个`
-      );
+      const sourceCount = data?.sourceCount || 0;
+      const synced = data?.syncedCount || 0;
+      const failed = data?.failed || 0;
+      // 一个都没解析出来:只显示诊断信息(rt_ 误粘/非 JWT 等),不追加"写入0/失败0"
+      // 以免误导成写库失败;红色提示,且保留弹窗与已粘内容方便修正。
+      if (sourceCount === 0) {
+        toast.error(data?.message || "未识别到可导入的 Web AT");
+        return;
+      }
+      const note = data?.message ? `${data.message} ` : "";
+      const firstError = (data as { firstError?: string } | undefined)
+        ?.firstError;
+      const detail = `识别 ${sourceCount} 个，写入 ${synced} 个，失败 ${failed} 个${
+        failed && firstError ? `；首个错误：${firstError}` : ""
+      }`;
+      // 解析出了但全部写入失败:同样红色提示、保留弹窗。
+      if (synced === 0) {
+        toast.error(`${note}${detail}`);
+        return;
+      }
+      toast.success(`${note}${detail}`);
       setIsWebAtImportOpen(false);
       resetWebAtImportForm();
       reload();
@@ -1658,6 +1689,34 @@ export function ImageBackendPoolAdminPanel({
       onError: ({ error }) =>
         toast.error(error.serverError || "导入 Adobe 账号失败"),
     });
+
+  const [adobeBatchSummary, setAdobeBatchSummary] = useState("");
+  const {
+    execute: importAdobeAccountsExec,
+    isPending: isImportingAdobeAccounts,
+  } = useAction(importAdobeAccountsAction, {
+    onSuccess: ({ data }) => {
+      const result = data?.result;
+      if (!result) return;
+      const summary = `共 ${result.total}：导入 ${result.imported}，跳过 ${result.skipped}，失败 ${result.failed}${
+        result.failed && result.firstError
+          ? `；首个错误：${result.firstError}`
+          : ""
+      }`;
+      setAdobeBatchSummary(summary);
+      // 有失败则保留文本便于修正后重试（已导入项会按身份自动跳过）；全部成功才清空。
+      if (result.failed > 0) {
+        toast.error(summary);
+      } else {
+        toast.success(summary);
+        setAdobeCookieInput("");
+        setAdobeAccountName("");
+      }
+      if (adobeForm.id) loadAdobeAccounts({ adobeId: adobeForm.id });
+    },
+    onError: ({ error }) =>
+      toast.error(error.serverError || "批量导入 Adobe 账号失败"),
+  });
 
   const { execute: deleteAdobeAccountExec } = useAction(
     deleteAdobeAccountAction,
@@ -2284,12 +2343,13 @@ export function ImageBackendPoolAdminPanel({
             value === "apis" ||
             value === "adobe" ||
             value === "import" ||
+            value === "register" ||
             value === "groups"
               ? value
               : readOnly
                 ? "accounts"
                 : "groups";
-          if (readOnly && nextTab === "import") return;
+          if (readOnly && (nextTab === "import" || nextTab === "register")) return;
           setActiveTab(nextTab);
         }}
         className="w-full"
@@ -2300,6 +2360,7 @@ export function ImageBackendPoolAdminPanel({
           <TabsTrigger value="apis">API 后端</TabsTrigger>
           <TabsTrigger value="adobe">Adobe 后端</TabsTrigger>
           {!readOnly && <TabsTrigger value="import">同步 Sub2API</TabsTrigger>}
+          {!readOnly && <TabsTrigger value="register">注册机</TabsTrigger>}
         </TabsList>
 
         <TabsContent
@@ -3877,6 +3938,83 @@ export function ImageBackendPoolAdminPanel({
                     }
                   />
                 </div>
+                <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                  <div>
+                    <Label>Adobe 来源（按 Adobe 计费 + 进 firefly 调度）</Label>
+                    <p className="text-xs text-muted-foreground">
+                      上游实为 Adobe 的 gpt 格式 api。开启后：计费吃下方成员倍率
+                      （命中组倍率 × 成员倍率，与 Adobe 伪账号同口径）；调度上参与
+                      firefly 候选，firefly-* 请求自动反向转换成 gpt 请求后由本后端处理。
+                    </p>
+                  </div>
+                  <Switch
+                    checked={apiForm.adobeSourced}
+                    onCheckedChange={(checked) =>
+                      setApiForm((current) => ({
+                        ...current,
+                        adobeSourced: checked,
+                      }))
+                    }
+                  />
+                </div>
+                {apiForm.adobeSourced && (
+                  <div className="space-y-1.5">
+                    <Label>计费倍率（成员）</Label>
+                    <Input
+                      type="number"
+                      min={0.01}
+                      max={100}
+                      step={0.01}
+                      value={apiForm.billingMultiplier}
+                      onChange={(event) =>
+                        setApiForm((current) => ({
+                          ...current,
+                          billingMultiplier: event.target.value,
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      仅「Adobe 来源」开启时生效。最终扣费 = 向上保留两位(向上保留两位
+                      (基础价 + 审核附加) × 模型倍率 × 命中组倍率 × 本成员倍率)。
+                    </p>
+                    {(() => {
+                      // 实时算例：以 nano-banana-pro · 1024×1024 为例，套上方输入的成员
+                      // 倍率，与"含分组倍率示例"同口径（基础价 6 + 审核附加 0.04 + 嵌套
+                      // ceil2），再叠模型倍率（线上 IMAGE_MODEL_MULTIPLIERS：
+                      // nano-banana-pro x1.5）与示例组倍率。香蕉 pro 是"多一些乘数"的典型。
+                      const member = Number(apiForm.billingMultiplier) || 1;
+                      const sampleGroup = 1.2;
+                      const modelMultiplier = 1.5;
+                      const ceil2 = (v: number) =>
+                        Math.ceil(v * 100 - 1e-9) / 100;
+                      const final = ceil2(
+                        ceil2(6.04) * modelMultiplier * sampleGroup * member
+                      );
+                      return (
+                        <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-xs">
+                          <div className="font-medium">
+                            算例：nano-banana-pro · 1024×1024
+                          </div>
+                          <div className="text-muted-foreground">
+                            模型 x{modelMultiplier} · 组 x{sampleGroup}（示例） ·
+                            成员 x{member}
+                          </div>
+                          <div className="text-muted-foreground">
+                            向上保留两位(向上保留两位(6 基础价 + 0.04 审核附加) x{" "}
+                            {modelMultiplier} x {sampleGroup} x {member})
+                          </div>
+                          <div className="font-medium text-foreground">
+                            = {final} 积分/张
+                          </div>
+                          <p className="text-muted-foreground">
+                            模型倍率（如 nano-banana-pro x1.5）按 IMAGE_MODEL_MULTIPLIERS
+                            配置、与本成员倍率叠乘；关闭「Adobe 来源」则成员 x1（同普通 api）。
+                          </p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
                 <Button
                   className="w-full"
                   onClick={() =>
@@ -4414,23 +4552,23 @@ export function ImageBackendPoolAdminPanel({
                       <Label>Adobe 账号（cookie）</Label>
                       <p className="text-xs text-muted-foreground">
                         {adobeForm.id
-                          ? "粘贴 Adobe 浏览器 cookie 或插件导出的 JSON；导入时会刷新一次以验证。可用仓库 tools/adobe-cookie-exporter/ 浏览器扩展导出（含 HttpOnly cookie）。"
+                          ? "粘贴 Adobe 浏览器 cookie 或插件导出的 JSON；导入时会刷新一次以验证。批量导入支持每行一个 cookie 或 JSON 数组，逐条验证、按 Adobe 账号身份去重。可用仓库 tools/adobe-cookie-exporter/ 浏览器扩展导出（含 HttpOnly cookie）。"
                           : "请先保存后端，再导入 Adobe 账号。"}
                       </p>
                     </div>
                     {adobeForm.id && (
                       <>
                         <Input
-                          placeholder="账号备注名（可选）"
+                          placeholder="账号备注名（单条）/ 名称前缀（批量，自动加序号）"
                           value={adobeAccountName}
                           onChange={(event) =>
                             setAdobeAccountName(event.target.value)
                           }
                         />
                         <Textarea
-                          placeholder="粘贴 cookie 字符串或浏览器插件导出的 JSON"
+                          placeholder="单条：粘贴一个 cookie 或 JSON；批量：每行一个 cookie，或粘贴 JSON 数组"
                           value={adobeCookieInput}
-                          rows={3}
+                          rows={4}
                           onChange={(event) =>
                             setAdobeCookieInput(event.target.value)
                           }
@@ -4454,6 +4592,32 @@ export function ImageBackendPoolAdminPanel({
                           )}
                           导入并验证账号
                         </Button>
+                        <Button
+                          variant="secondary"
+                          className="w-full"
+                          disabled={
+                            isImportingAdobeAccounts ||
+                            !adobeCookieInput.trim()
+                          }
+                          onClick={() =>
+                            importAdobeAccountsExec({
+                              adobeId: adobeForm.id,
+                              cookiesText: adobeCookieInput,
+                              namePrefix:
+                                adobeAccountName.trim() || undefined,
+                            })
+                          }
+                        >
+                          {isImportingAdobeAccounts && (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          )}
+                          批量导入（每行一个 cookie / JSON 数组）
+                        </Button>
+                        {adobeBatchSummary && (
+                          <p className="text-xs text-muted-foreground">
+                            {adobeBatchSummary}
+                          </p>
+                        )}
                         <div className="space-y-2">
                           {!adobeAccounts.length && (
                             <p className="text-xs text-muted-foreground">
@@ -5197,6 +5361,13 @@ export function ImageBackendPoolAdminPanel({
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+        )}
+        {!readOnly && (
+          <TabsContent value="register" className="mt-6">
+            <ChatgptRegisterTab
+              groups={groups.map((g) => ({ id: g.id, name: g.name }))}
+            />
           </TabsContent>
         )}
       </Tabs>

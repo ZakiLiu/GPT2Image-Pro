@@ -24,6 +24,14 @@ export interface GenerateImageParams {
   transparentMatte?: boolean;
   /** 审核改写重试:显式 false 时本次失败不自动改写提示词重试,直接返回真实错误(issue #24)。 */
   moderationPromptRepair?: boolean;
+  /** 高清修复:true 时对最终图用 SCUNet 盲复原(去噪/去压缩块/增强质感,不改分辨率);仅在主开关
+   *  IMAGE_RESTORATION_ENABLED 开时生效,默认关(见 operations.ts / image-restoration.ts)。 */
+  hdRepair?: boolean;
+  /** 分块修复:true 时把最终图切成 2×2 web 尺寸块,逐块 gpt-image-2 img2img 重绘(重点修文字)
+   *  再拼接、超分到目标。逐块单独计费。仅在主开关 IMAGE_BLOCK_REPAIR_ENABLED 开时生效。 */
+  blockRepair?: boolean;
+  /** 分块修复每块提示词(覆盖管理端默认);为空用默认。 */
+  repairPrompt?: string;
 }
 
 export interface GenerateImageResult {
@@ -178,6 +186,14 @@ export interface EditImageParams {
   transparentMatte?: boolean;
   /** 审核改写重试:显式 false 时本次失败不自动改写提示词重试,直接返回真实错误(issue #24)。 */
   moderationPromptRepair?: boolean;
+  /** 高清修复:true 时对最终图用 SCUNet 盲复原(去噪/去压缩块/增强质感,不改分辨率);仅在主开关
+   *  IMAGE_RESTORATION_ENABLED 开时生效,默认关(见 operations.ts / image-restoration.ts)。 */
+  hdRepair?: boolean;
+  /** 分块修复:true 时把最终图切成 2×2 web 尺寸块,逐块 gpt-image-2 img2img 重绘(重点修文字)
+   *  再拼接、超分到目标。逐块单独计费。仅在主开关 IMAGE_BLOCK_REPAIR_ENABLED 开时生效。 */
+  blockRepair?: boolean;
+  /** 分块修复每块提示词(覆盖管理端默认);为空用默认。 */
+  repairPrompt?: string;
 }
 
 export interface ChatImageParams {
@@ -218,6 +234,14 @@ export interface ChatImageParams {
   transparentMatte?: boolean;
   /** 审核改写重试:显式 false 时本次失败不自动改写提示词重试,直接返回真实错误(issue #24)。 */
   moderationPromptRepair?: boolean;
+  /** 高清修复:true 时对最终图用 SCUNet 盲复原(去噪/去压缩块/增强质感,不改分辨率);仅在主开关
+   *  IMAGE_RESTORATION_ENABLED 开时生效,默认关(见 operations.ts / image-restoration.ts)。 */
+  hdRepair?: boolean;
+  /** 分块修复:true 时把最终图切成 2×2 web 尺寸块,逐块 gpt-image-2 img2img 重绘(重点修文字)
+   *  再拼接、超分到目标。逐块单独计费。仅在主开关 IMAGE_BLOCK_REPAIR_ENABLED 开时生效。 */
+  blockRepair?: boolean;
+  /** 分块修复每块提示词(覆盖管理端默认);为空用默认。 */
+  repairPrompt?: string;
 }
 
 export interface ChatGptWebConversationState {
@@ -277,6 +301,9 @@ export interface ApiConfig {
     type: "platform" | "pool-api" | "pool-account" | "pool-adobe" | "user-api";
     id?: string;
     groupId?: string | null;
+    // 解析到的【目标分组】backendType。供换号重试循环判定是否为混合分组——web→codex
+    // 回退仅在 mixed 分组生效(纯 web / 纯 codex 分组各自闭环,不跨车道回退)。
+    groupBackendType?: "web" | "responses" | "mixed";
     userId?: string;
     apiKeyId?: string;
     requestKind?: "image_generation" | "image_edit" | "chat" | "responses";
@@ -285,6 +312,13 @@ export interface ApiConfig {
     chatCompletionsUpstreamMode?: "responses" | "chat_completions";
     imagesUpstreamMode?: "images" | "responses";
     apiForceResponsesEndpoint?: boolean;
+    // pool-api 专属：该 api 后端上游实为 Adobe（adobe-sourced）。为真时计费吃成员倍率
+    // （见 service.ts），且 firefly-* 请求经反向转换（截家族名 + 推 size）后由本后端服务。
+    adobeSourced?: boolean;
+    // 本次请求是否为 firefly 意图（firefly-* 模型或 force_firefly）。解析时按请求口径盖在
+    // config 上，使后端失败换号重试能保持「只走 Adobe（pool-adobe / adobe_sourced api）」，
+    // 避免 firefly/按-Adobe-计费 的请求被重试到非 Adobe 后端（计费/产物错配）。
+    fireflyOnly?: boolean;
     // adobe（pool-adobe）专属：暴露的 Firefly 模型家族、默认宽高比/分辨率、是否支持
     // 视频。供 image-generation 派发 adobe 请求时选择 family 与映射缺省值。
     // gateway：调外部 adobe2api；direct：本仓库直连 Firefly（adobe_account/token + 旁路）。

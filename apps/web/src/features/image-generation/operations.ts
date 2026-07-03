@@ -5,11 +5,12 @@ import { consumeCredits } from "@repo/shared/credits/core";
 import { GPT55_CHAT_MODEL } from "@repo/shared/config/subscription-plan";
 import {
   IMAGE_GENERATION_PENDING_TIMEOUT_MS,
-  IMAGE_GENERATION_TIMEOUT_ERROR,
   refundGenerationCredits,
+  resolveImageGenerationTimeoutError,
 } from "@repo/shared/generation-maintenance";
 import { getFailedGenerationTargetCredits } from "@repo/shared/generation-settlement";
 import { logWarn } from "@repo/shared/logger";
+import { toClientErrorMessage } from "./error-sanitize";
 import {
   isContentModerationEnabled,
   moderateContent,
@@ -57,6 +58,7 @@ import { buildInputImagesMetadata } from "./generation-metadata";
 import { getRuntimeImageBaseCreditPricing } from "./pricing-settings";
 import { withImageGenerationQueue } from "./queue";
 import {
+  DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
   getImageCreditCostBreakdown,
   getImageModel,
@@ -67,9 +69,15 @@ import {
   isFireflyModel,
   isImageSizeWithinPixelRange,
   normalizeImageSize,
+  parseImageSize,
   roundCreditAmount,
   roundUpCreditAmount,
 } from "./resolution";
+import { generativeRepairImage } from "./generative-repair";
+import { maskedOutpaintImage } from "./masked-outpaint";
+import { restoreImage } from "./image-restoration";
+import { calibrateImageResolution } from "./resolution-calibration";
+import { superResolve } from "./super-resolution";
 import {
   editImage,
   generateChatImage,
@@ -835,6 +843,10 @@ function resolveOutputGenerationId(
     : `${parentGenerationId}-${index + 1}`;
 }
 
+// 生成式修复默认提示词：整图重绘、只修不改（请求级 repair_prompt 可覆盖）。
+const DEFAULT_BLOCK_REPAIR_PROMPT =
+  "Redraw this entire image to restore and sharpen it: fix blurry or garbled text and fine details, keep the exact same composition, layout, colors and content unchanged. Do not add, remove, move or reinterpret anything.";
+
 async function storeGeneratedImageOutput(params: {
   output: {
     imageBase64?: string;
@@ -852,8 +864,129 @@ async function storeGeneratedImageOutput(params: {
   bucket: string;
   requestedSize: string;
   requestedFormat?: string;
+  /** 高清修复开关(请求级):true 且主开关开时用 SCUNet 盲复原最终图(不改分辨率);其余不修复。 */
+  hdRepair?: boolean;
+  /** 分块修复开关(请求级):true 时把图切成 2×2 web 尺寸块逐块 gpt-image-2 重绘再拼接。 */
+  blockRepair?: boolean;
+  /** 分块修复的每块提示词(请求级覆盖);为空则用管理端默认。 */
+  repairPrompt?: string;
+  /** 逐块计费回调(由调用点注入,携带 chargeAdditionalCredits+定价);每成功重绘一块调一次。 */
+  chargeTile?: (tileSize: string, tileIndex: number) => Promise<void>;
 }) {
-  const imageBuffer = await toImageBuffer(params.output);
+  let imageBuffer: Buffer = await toImageBuffer(params.output);
+  // 出图后处理（仅对最终图）：修复与超分两个独立步骤，各自主开关门控、失败回退不阻断。
+  // 顺序=先修复再超分（修复在原分辨率上跑更省算力，超分再放大到目标）。
+  const isFinalImage =
+    !params.output.outputRole || params.output.outputRole === "final";
+  if (isFinalImage) {
+    // 修复（手动勾选 hdRepair + 主开关 IMAGE_RESTORATION_ENABLED）：SCUNet 盲复原、不改尺寸。
+    // 重模型、CPU 慢，故默认关、需用户显式勾选；内部有全局串行闸防并发打满机器。
+    if (
+      params.hdRepair === true &&
+      (await getRuntimeSettingBoolean("IMAGE_RESTORATION_ENABLED", false))
+    ) {
+      const restored = await restoreImage(imageBuffer);
+      imageBuffer = restored.buffer;
+    }
+    // 生成式修复（手动 blockRepair）：两种技术二选一，由管理端主开关决定，均自带到目标分辨率
+    // （启用成功时替代下面独立超分）、逐块/次计费(chargeTile)、失败回退不阻断：
+    //  - IMAGE_MASK_OUTPAINT_ENABLED：掩码顺序外绘（1K tile + mask，路由 codex，无缝，见 masked-outpaint.ts）
+    //  - IMAGE_BLOCK_REPAIR_ENABLED ：整图一次重绘 + general 超分（见 generative-repair.ts）
+    let blockRepaired = false;
+    if (params.blockRepair === true) {
+      const target = parseImageSize(params.requestedSize || DEFAULT_IMAGE_SIZE);
+      // 提示词:请求级 repairPrompt 覆盖 > 内置默认(无需管理端配置)。
+      const repairPrompt =
+        params.repairPrompt?.trim() || DEFAULT_BLOCK_REPAIR_PROMPT;
+      const maskOutpaint = await getRuntimeSettingBoolean(
+        "IMAGE_MASK_OUTPAINT_ENABLED",
+        false
+      );
+      const wholeRepair = await getRuntimeSettingBoolean(
+        "IMAGE_BLOCK_REPAIR_ENABLED",
+        false
+      );
+      if (target && maskOutpaint) {
+        // 掩码顺序外绘:在目标尺寸上切 1K 重叠块,逐块带 mask 编辑(锁住已提交重叠区、只重绘新区)。
+        // 路由 codex(会发 mask、尊重 1K);只写新区、保留区不动 → 无缝。
+        try {
+          const res = await maskedOutpaintImage(
+            imageBuffer,
+            Math.max(target.width, target.height),
+            async (tileCanvas, mask, w, h, i) => {
+              const edited = await editImage(params.config, {
+                prompt: repairPrompt,
+                images: [
+                  { data: tileCanvas, name: "tile.png", type: "image/png" },
+                ],
+                mask: { data: mask, name: "mask.png", type: "image/png" },
+                size: `${w}x${h}`,
+                model: DEFAULT_IMAGE_MODEL,
+                outputFormat: "png",
+                requiresResponsesBackend: true,
+              });
+              if (edited.error || !edited.imageBase64) {
+                throw new Error(edited.error || "掩码外绘:该块无输出");
+              }
+              await params.chargeTile?.(`${w}x${h}`, i);
+              return Buffer.from(edited.imageBase64, "base64");
+            },
+            superResolve
+          );
+          imageBuffer = res.buffer;
+          blockRepaired = res.tilesRepaired > 0;
+        } catch (error) {
+          logWarn("掩码外绘修复失败，回退原图", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } else if (target && wholeRepair) {
+        const targetLongEdge = Math.max(target.width, target.height);
+        try {
+          const repairedResult = await generativeRepairImage(
+            imageBuffer,
+            targetLongEdge,
+            // 整图重绘:gpt-image-2 img2img(强制 web 后端,尺寸较稳),成功后计费一次。
+            async (whole, w, h) => {
+              const edited = await editImage(params.config, {
+                prompt: repairPrompt,
+                images: [{ data: whole, name: "image.png", type: "image/png" }],
+                size: `${w}x${h}`,
+                model: DEFAULT_IMAGE_MODEL,
+                outputFormat: "png",
+                forceWebBackend: true,
+              });
+              if (edited.error || !edited.imageBase64) {
+                throw new Error(edited.error || "生成式修复:无输出");
+              }
+              await params.chargeTile?.(`${w}x${h}`, 0);
+              return Buffer.from(edited.imageBase64, "base64");
+            },
+            superResolve
+          );
+          imageBuffer = repairedResult.buffer;
+          blockRepaired = repairedResult.repaired;
+        } catch (error) {
+          logWarn("生成式修复失败，回退原图", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+    // 超分（自动 + 主开关 IMAGE_SUPER_RESOLUTION_ENABLED）：上游图较长边 < 目标 2/3 时用
+    // 轻量 general-x4v3 放大到目标尺寸（快，见 resolution-calibration.ts）。生成式修复已管到
+    // 目标分辨率时跳过（避免二次超分）。
+    if (
+      !blockRepaired &&
+      (await getRuntimeSettingBoolean("IMAGE_SUPER_RESOLUTION_ENABLED", false))
+    ) {
+      const calibrated = await calibrateImageResolution(
+        imageBuffer,
+        params.requestedSize || DEFAULT_IMAGE_SIZE
+      );
+      imageBuffer = calibrated.buffer;
+    }
+  }
   const storedFormat = resolveStoredImageFormat(
     imageBuffer,
     params.requestedFormat
@@ -1509,11 +1642,14 @@ export async function runImageGenerationForUser(
       }
     );
   } catch (error) {
+    // 兜底:DB/内部异常不得把裸 SQL/内部细节回给前端（issue #35:池查询失败的
+    // Drizzle "Failed query: ..." 曾原样显示在用户 toast）。脱敏 + 记日志。
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Image generation queue is busy. Please retry shortly.",
+      error: toClientErrorMessage(
+        error,
+        { source: "image-generation", generationId },
+        "Image generation queue is busy. Please retry shortly."
+      ),
       generationId,
     };
   }
@@ -1850,7 +1986,7 @@ async function runQueuedImageGenerationForUser({
         .update(generation)
         .set({
           status: "failed",
-          error: IMAGE_GENERATION_TIMEOUT_ERROR,
+          error: resolveImageGenerationTimeoutError(config.backend),
           creditsConsumed: chargedCredits,
           completedAt: new Date(),
           metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
@@ -1905,7 +2041,7 @@ async function runQueuedImageGenerationForUser({
       }
 
       return {
-        error: IMAGE_GENERATION_TIMEOUT_ERROR,
+        error: resolveImageGenerationTimeoutError(config.backend),
         generationId,
         creditsConsumed: chargedCredits,
       };
@@ -2212,8 +2348,12 @@ async function runQueuedImageGenerationForUser({
     try {
       result = await runGenerationAttempt();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Image generation failed";
+      // 同上:生成尝试阶段的 DB/内部异常也脱敏,避免裸 SQL 漏到前端。
+      const message = toClientErrorMessage(
+        error,
+        { source: "image-generation-attempt", generationId },
+        "Image generation failed"
+      );
       const retryingRepairAttempt =
         getLastRetryingRepairAttempt(repairAttempts);
       if (retryingRepairAttempt) {
@@ -2554,19 +2694,43 @@ async function runQueuedImageGenerationForUser({
       }
     } else {
       for (const [index, output] of imageOutputs.entries()) {
+        const outputGenerationId = resolveOutputGenerationId(
+          generationId,
+          index,
+          imageOutputs.length
+        );
         storedOutputs.push(
           await storeGeneratedImageOutput({
             output,
             config,
             userId: input.userId,
-            generationId: resolveOutputGenerationId(
-              generationId,
-              index,
-              imageOutputs.length
-            ),
+            generationId: outputGenerationId,
             bucket,
             requestedSize: size,
             requestedFormat: input.outputFormat,
+            hdRepair: input.hdRepair,
+            blockRepair: input.blockRepair,
+            repairPrompt: input.repairPrompt,
+            // 生成式修复计费:重绘一次按尺寸扣一次,幂等 sourceRef 防重试重复扣。
+            chargeTile: async (tileSize, tileIndex) => {
+              const tileCost = applyBillingMultiplierToCreditCost(
+                getImageCreditCostBreakdown(tileSize, {
+                  textModerationCount: 0,
+                  imageModerationCount: 0,
+                  basePricing: imageBasePricing,
+                  quality: input.quality as ImageQualityLevel | undefined,
+                  thinking: input.thinking as ImageThinkingLevel | undefined,
+                }),
+                billingMultiplier
+              ).totalCredits;
+              await chargeAdditionalCredits(
+                tileCost,
+                "image-generation",
+                `生成式修复 (${tileSize})`,
+                { blockRepair: true, tileSize, index: tileIndex },
+                `${outputGenerationId}:blockrepair-${tileIndex}`
+              );
+            },
           })
         );
         if (isAgentChatInput) {

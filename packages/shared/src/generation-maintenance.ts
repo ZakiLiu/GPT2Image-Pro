@@ -9,11 +9,17 @@ import { getStorageProvider } from "./storage/providers";
 import { getRuntimeSettingNumber } from "./system-settings";
 
 export const IMAGE_GENERATION_PENDING_TIMEOUT_MS = 20 * 60 * 1000;
-// 文案须与 generation_error 结算行为一致：退生成费、保留已发生的审核费
-// (getFailedGenerationTargetCredits 对 generation_error 保留 moderationOnlyCredits)，
-// 不能笼统地说 "credits were refunded"。
-export const IMAGE_GENERATION_TIMEOUT_ERROR =
-  "Image generation timed out after 20 minutes. The image generation fee was refunded; any moderation fee already incurred was retained.";
+// 超时文案/标记/选择器抽到 db-free 的 ./generation-timeout（纯分类器 sla-classification
+// 也要用，不能经本模块的 `import { db }` 把数据库连接拖进纯路径）。本模块 pending 清扫
+// 用 resolveImageGenerationTimeoutError，同时重导出以保持
+// `@repo/shared/generation-maintenance` 的既有公开面不变。
+import { resolveImageGenerationTimeoutError } from "./generation-timeout";
+export {
+  IMAGE_GENERATION_TIMEOUT_ERROR,
+  IMAGE_GENERATION_WEB_TIMEOUT_ERROR,
+  IMAGE_GENERATION_WEB_TIMEOUT_MODERATION_MARKER,
+  resolveImageGenerationTimeoutError,
+} from "./generation-timeout";
 export const GENERATION_IMAGE_RETENTION_HOURS_SETTING_KEY =
   "GENERATION_IMAGE_RETENTION_HOURS";
 export const GENERATION_IMAGE_RETENTION_MODE_SETTING_KEY =
@@ -336,12 +342,21 @@ export async function expireStalePendingGenerations(
       targetCredits,
     });
     const sourceRef = `${row.id}:timeout-refund`;
+    // 命中后端从 metadata.backend 取（Web 账号超时补"疑似审核"提示并归 moderation）。
+    const backendMeta =
+      isRecord(row.metadata) &&
+      isRecord((row.metadata as Record<string, unknown>).backend)
+        ? ((row.metadata as Record<string, unknown>).backend as {
+            type?: string | null;
+            accountBackend?: string | null;
+          })
+        : null;
 
     const [updated] = await db
       .update(generation)
       .set({
         status: "failed",
-        error: IMAGE_GENERATION_TIMEOUT_ERROR,
+        error: resolveImageGenerationTimeoutError(backendMeta),
         completedAt: now,
         metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
           {

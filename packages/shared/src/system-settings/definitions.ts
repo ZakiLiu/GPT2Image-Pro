@@ -23,6 +23,7 @@ export type SettingKey =
   | "NEXT_PUBLIC_ASSET_PREFIX"
   | "APP_TIME_ZONE"
   | "MARKETING_SLA_STATUS_ENABLED"
+  | "EXTERNAL_API_CORS_ENABLED"
   | "SELF_USE_MODE_ENABLED"
   | "BETTER_AUTH_SECRET"
   | "BETTER_AUTH_URL"
@@ -110,6 +111,7 @@ export type SettingKey =
   | "CHATGPT_WEB_ACCOUNT_REFRESH_LIMIT"
   | "IMAGE_BACKEND_DEFAULT_COOLDOWN_MINUTES"
   | "IMAGE_BACKEND_RATE_LIMIT_COOLDOWN_MINUTES"
+  | "IMAGE_BACKEND_TOOL_RATE_LIMIT_COOLDOWN_MINUTES"
   | "IMAGE_BACKEND_OVERLOAD_COOLDOWN_MINUTES"
   | "IMAGE_BACKEND_USAGE_LIMIT_COOLDOWN_MINUTES"
   | "IMAGE_BACKEND_UNSUPPORTED_MODEL_COOLDOWN_MINUTES"
@@ -144,6 +146,10 @@ export type SettingKey =
   | "IMAGE_BASE_CREDITS_1024"
   | "IMAGE_BASE_CREDITS_4K"
   | "IMAGE_MODEL_MULTIPLIERS"
+  | "IMAGE_SUPER_RESOLUTION_ENABLED"
+  | "IMAGE_RESTORATION_ENABLED"
+  | "IMAGE_BLOCK_REPAIR_ENABLED"
+  | "IMAGE_MASK_OUTPAINT_ENABLED"
   | "VIDEO_BASE_CREDITS_PER_SECOND"
   | "VIDEO_MODEL_MULTIPLIERS"
   | "NEXT_PUBLIC_GA_ID"
@@ -155,6 +161,7 @@ export type SettingKey =
   | "INTERNAL_JOB_IMAGES_MAINTENANCE_INTERVAL_MINUTES"
   | "INTERNAL_JOB_CREDITS_EXPIRE_INTERVAL_MINUTES"
   | "INTERNAL_JOB_WEB_ACCOUNTS_REFRESH_INTERVAL_MINUTES"
+  | "INTERNAL_JOB_WEB_ACCOUNTS_REPLENISH_INTERVAL_MINUTES"
   | "INTERNAL_JOB_SUB2API_SYNC_INTERVAL_MINUTES"
   | "UPSTASH_REDIS_REST_URL"
   | "UPSTASH_REDIS_REST_TOKEN"
@@ -163,7 +170,22 @@ export type SettingKey =
   | "RATE_LIMIT_AI_REQUESTS_PER_MINUTE"
   | "RATE_LIMIT_PAYMENT_REQUESTS_PER_MINUTE"
   | "RATE_LIMIT_UPLOAD_REQUESTS_PER_MINUTE"
-  | "RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE";
+  | "RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE"
+  | "CHATGPT_REGISTER_MOEMAIL_API_KEY"
+  | "CHATGPT_REGISTER_MOEMAIL_BASE_URL"
+  | "CHATGPT_REGISTER_MOEMAIL_DOMAIN"
+  | "CHATGPT_REGISTER_DOMAINS"
+  | "CHATGPT_REGISTER_DOMAIN_ROTATION_ENABLED"
+  | "CHATGPT_REGISTER_PROXY"
+  | "CHATGPT_REGISTER_PROXY_DISABLED"
+  | "CHATGPT_REGISTER_REFRESH_URL"
+  | "CHATGPT_REGISTER_REFRESH_MIN_INTERVAL_SECONDS"
+  | "CHATGPT_REGISTER_REFRESH_MIN_ATTEMPTS"
+  | "CHATGPT_REGISTER_POOL_MAINTAIN_ENABLED"
+  | "CHATGPT_REGISTER_POOL_MAINTAIN_GROUP_ID"
+  | "CHATGPT_REGISTER_POOL_MAINTAIN_TARGET"
+  | "CHATGPT_REGISTER_POOL_MAINTAIN_MAX_PER_RUN"
+  | "CHATGPT_REGISTER_POOL_MAINTAIN_CONCURRENCY";
 
 export interface SettingDefinition {
   key: SettingKey;
@@ -403,6 +425,15 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     label: "首页 SLA 展示",
     description:
       "控制主页是否展示生图服务 SLA 区块。管理员和超管可在首页直接关闭或开启；观察管理员只读。",
+    category: "general",
+    valueType: "boolean",
+    defaultValue: true,
+  },
+  {
+    key: "EXTERNAL_API_CORS_ENABLED",
+    label: "外部 API 跨域(CORS)",
+    description:
+      "控制外部 API(/v1、/api/v1)是否允许浏览器跨域调用。开启后对所有来源开放(Access-Control-Allow-Origin: *,Bearer 鉴权不带 cookie,不开启凭据);关闭则不返回跨域头,浏览器跨域被拦,服务端直连不受影响。",
     category: "general",
     valueType: "boolean",
     defaultValue: true,
@@ -1014,6 +1045,15 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     defaultValue: 15,
   },
   {
+    key: "IMAGE_BACKEND_TOOL_RATE_LIMIT_COOLDOWN_MINUTES",
+    label: "后端画图工具限流恢复分钟",
+    description:
+      "ChatGPT 账号画图工具被限流(image_gen.text2im / ChatGPTAgentToolRateLimitException)时的兜底冷却时间;此类为账号级滚动限流、恢复快,未配置时为 3 分钟;如上游返回 Retry-After 或 reset 时间,会优先按上游时间恢复。",
+    category: "models",
+    valueType: "number",
+    defaultValue: 3,
+  },
+  {
     key: "IMAGE_BACKEND_OVERLOAD_COOLDOWN_MINUTES",
     label: "后端 529/过载兜底恢复分钟",
     description:
@@ -1296,6 +1336,42 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     defaultValue: 10,
   },
   {
+    key: "IMAGE_SUPER_RESOLUTION_ENABLED",
+    label: "出图分辨率超分校准",
+    description:
+      "开启后，上游返回图的较长边低于请求尺寸 2/3 时，用 Real-ESRGAN 超分放大并缩到目标分辨率（不裁剪、不改宽高比）。CPU 推理，单张约 1-2 秒，仅对最终图触发；默认关闭。",
+    category: "models",
+    valueType: "boolean",
+    defaultValue: false,
+  },
+  {
+    key: "IMAGE_RESTORATION_ENABLED",
+    label: "出图高清修复（SCUNet）",
+    description:
+      "开启后，用户在创作时勾选「高清修复」的最终图会用 SCUNet 盲复原（去噪/去压缩块/增强质感，不改分辨率）。CPU 推理较重（512 约 11 秒、1024 约 35 秒），有全局串行闸防并发打满机器；需用户手动勾选、仅对最终图触发；默认关闭。与「超分校准」独立：修复在原分辨率跑、超分再放大。",
+    category: "models",
+    valueType: "boolean",
+    defaultValue: false,
+  },
+  {
+    key: "IMAGE_BLOCK_REPAIR_ENABLED",
+    label: "出图生成式修复（gpt-image-2 整图重绘）",
+    description:
+      "开启后，用户勾选「生成式修复」的最终图会缩到 web 甜点分辨率（约 1280），一次性用 gpt-image-2 img2img 整图重绘（重点修文字/细节、保持构图与内容不变），再超分补足到目标分辨率。整图一次重绘无接缝（不再切块，避免重叠重影）；单独调用一次后端并计费。替代自动超分。修复提示词有内置默认，用户/API 可用 repair_prompt 覆盖，无需在此配置。需用户手动勾选、仅对最终图触发；默认关闭。与「掩码外绘」互斥，后者优先。",
+    category: "models",
+    valueType: "boolean",
+    defaultValue: false,
+  },
+  {
+    key: "IMAGE_MASK_OUTPAINT_ENABLED",
+    label: "出图掩码外绘修复（gpt-image-2 无缝分块）",
+    description:
+      "开启后（优先于「生成式修复」），用户勾选「生成式修复」的最终图在目标分辨率上切成 1K 重叠块，按顺序逐块用 gpt-image-2 带 mask 编辑：锁住与已完成邻块的重叠区、只重绘新区域，让相邻块无缝衔接（消除切块重影）。路由到会发送 mask 且尊重 1K 尺寸的 codex 后端（web 不发 mask）。每块单独调用后端并单独计费（最后加和），比整图重绘更慢更贵。需用户手动勾选、仅对最终图触发；默认关闭。实验性。",
+    category: "models",
+    valueType: "boolean",
+    defaultValue: false,
+  },
+  {
     key: "IMAGE_MODEL_MULTIPLIERS",
     label: "图像模型族倍率",
     description:
@@ -1492,6 +1568,138 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     valueType: "number",
     defaultValue: 3,
     requiresRestart: true,
+  },
+  {
+    key: "CHATGPT_REGISTER_MOEMAIL_API_KEY",
+    label: "注册机 Moemail API Key",
+    description: "ChatGPT 账号注册机使用的 Moemail 临时邮箱服务 API Key。",
+    category: "models",
+    valueType: "string",
+    secret: true,
+  },
+  {
+    key: "CHATGPT_REGISTER_MOEMAIL_BASE_URL",
+    label: "注册机 Moemail 服务地址",
+    description: "Moemail 临时邮箱服务的 API 地址，默认 https://mail.52ai.org。",
+    category: "models",
+    valueType: "string",
+    defaultValue: "https://mail.52ai.org",
+  },
+  {
+    key: "CHATGPT_REGISTER_MOEMAIL_DOMAIN",
+    label: "注册机邮箱域名",
+    description: "注册时使用的临时邮箱域名，例如 pt.sanyela.shop。",
+    category: "models",
+    valueType: "string",
+  },
+  {
+    key: "CHATGPT_REGISTER_DOMAINS",
+    label: "注册机可用域名列表",
+    description:
+      "点「查询可用域名」时自动保存的 moemail 可用域名（逗号分隔），供「轮换域名」使用。",
+    category: "models",
+    valueType: "string",
+  },
+  {
+    key: "CHATGPT_REGISTER_DOMAIN_ROTATION_ENABLED",
+    label: "注册机轮换域名",
+    description:
+      "开启后每一轮注册从已保存的域名列表中轮换取一个不同域名，避免单域名被拉黑。需先查询并保存域名列表。",
+    category: "models",
+    valueType: "boolean",
+    defaultValue: false,
+  },
+  {
+    key: "CHATGPT_REGISTER_PROXY",
+    label: "注册机代理地址",
+    description: "注册机 HTTP 代理，格式 http://user:pass@host:port。",
+    category: "models",
+    valueType: "string",
+    secret: true,
+  },
+  {
+    key: "CHATGPT_REGISTER_PROXY_DISABLED",
+    label: "注册机禁用代理（直连本机 IP）",
+    description:
+      "开启后注册机不走代理、直连本机 IP（同时跳过 IP 刷新）。代理地址保留不动，仅本开关控制是否启用。",
+    category: "models",
+    valueType: "boolean",
+    defaultValue: false,
+  },
+  {
+    key: "CHATGPT_REGISTER_REFRESH_URL",
+    label: "注册机代理 IP 刷新地址",
+    description:
+      "动态代理 IP 刷新端点（GET 请求即换 IP）。留空则不刷新。",
+    category: "models",
+    valueType: "string",
+    secret: true,
+  },
+  {
+    key: "CHATGPT_REGISTER_REFRESH_MIN_INTERVAL_SECONDS",
+    label: "注册机 IP 刷新最小间隔（秒）",
+    description:
+      "两次 IP 刷新之间的最小时间间隔。实际刷新取本项与「最小尝试数」的慢者。",
+    category: "models",
+    valueType: "number",
+    defaultValue: 60,
+  },
+  {
+    key: "CHATGPT_REGISTER_REFRESH_MIN_ATTEMPTS",
+    label: "注册机 IP 刷新最小尝试数",
+    description:
+      "两次 IP 刷新之间至少累计的注册尝试数。实际刷新取本项与「最小间隔」的慢者。",
+    category: "models",
+    valueType: "number",
+    defaultValue: 100,
+  },
+  {
+    key: "CHATGPT_REGISTER_POOL_MAINTAIN_ENABLED",
+    label: "号池自动维持开关",
+    description:
+      "开启后，定时任务会在目标分组可用 web 账号数低于目标值时自动注册补号。",
+    category: "models",
+    valueType: "boolean",
+    defaultValue: false,
+  },
+  {
+    key: "CHATGPT_REGISTER_POOL_MAINTAIN_GROUP_ID",
+    label: "号池维持目标分组",
+    description: "自动维持可用数的目标分组 ID；新注册账号也导入该分组。",
+    category: "models",
+    valueType: "string",
+  },
+  {
+    key: "CHATGPT_REGISTER_POOL_MAINTAIN_TARGET",
+    label: "号池维持目标可用数",
+    description: "目标分组要维持的可用 web 账号数量。低于此值时自动补号。",
+    category: "models",
+    valueType: "number",
+    defaultValue: 0,
+  },
+  {
+    key: "CHATGPT_REGISTER_POOL_MAINTAIN_MAX_PER_RUN",
+    label: "号池维持每轮最多注册数",
+    description: "单次维持任务最多发起的注册数量，避免一次性突发过多。",
+    category: "models",
+    valueType: "number",
+    defaultValue: 10,
+  },
+  {
+    key: "CHATGPT_REGISTER_POOL_MAINTAIN_CONCURRENCY",
+    label: "号池维持注册并发",
+    description: "自动补号时传给注册机的并发数。",
+    category: "models",
+    valueType: "number",
+    defaultValue: 5,
+  },
+  {
+    key: "INTERNAL_JOB_WEB_ACCOUNTS_REPLENISH_INTERVAL_MINUTES",
+    label: "号池维持任务间隔（分钟）",
+    description: "号池自动维持（补号）任务的内置执行间隔。",
+    category: "general",
+    valueType: "number",
+    defaultValue: 15,
   },
 ] as const satisfies readonly SettingDefinition[];
 

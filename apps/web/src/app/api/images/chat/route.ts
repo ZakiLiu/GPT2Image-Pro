@@ -14,6 +14,7 @@ import {
   runBatchImageGeneration,
 } from "@/features/image-generation/batch-runner";
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
+import { isFireflyModel } from "@/features/image-generation/resolution";
 import {
   normalizeImageBackground,
   normalizeOutputCompression,
@@ -854,6 +855,18 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     "transparentMatte",
     "transparent_matte"
   );
+  // 高清修复:显式 false 走轻量 general-x4v3;undefined/true 由后端选 SwinIR 超分。
+  const hdRepair = getOptionalBoolean(formData, "hdRepair", "hd_repair");
+  // 分块修复:切成 2×2 web 块逐块 gpt-image-2 重绘再拼接;逐块单独计费。默认关。
+  const blockRepair = getOptionalBoolean(
+    formData,
+    "blockRepair",
+    "block_repair"
+  );
+  const repairPromptRaw =
+    formData.get("repairPrompt") ?? formData.get("repair_prompt");
+  const repairPrompt =
+    typeof repairPromptRaw === "string" ? repairPromptRaw : undefined;
 
   const thinkingValue = getText(formData, "thinking") || "low";
   if (!VALID_THINKING.has(thinkingValue as ThinkingLevel)) {
@@ -884,6 +897,15 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     getText(formData, "imageModel") ||
     getText(formData, "image_model") ||
     undefined;
+  // 对话生图/Agent 走 Codex/Responses 语义,与 Adobe 直连不兼容;firefly 图像模型在此
+  // 不被支持(否则 firefly 意图不进 fireflyOnly,会落到非 Adobe 后端)。UI 已不暴露,此处
+  // 服务端兜底拒收,作为防御边界。
+  if (isFireflyModel(imageModel)) {
+    return errorResponse(
+      "Firefly image models are not supported in chat/agent mode. Use /api/images/generate or /api/images/edit (or the external API) for Firefly.",
+      400
+    );
+  }
   try {
     for (const file of sourceFiles) {
       validateImageFile(file, {
@@ -944,6 +966,9 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           outputCompression,
           background,
           transparentMatte,
+          hdRepair,
+          blockRepair,
+          repairPrompt,
           stream: useStreamResponse,
           thinking,
           agentMode,

@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/MeowFree/GPT2Image-Pro/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/MeowFree/GPT2Image-Pro?style=social" /></a>
   <a href="https://github.com/MeowFree/GPT2Image-Pro/blob/dev/LICENSE"><img alt="License" src="https://img.shields.io/badge/License-AGPL--3.0-green" /></a>
-  <a href="https://github.com/MeowFree/GPT2Image-Pro/releases"><img alt="Release" src="https://img.shields.io/badge/Release-v0.5.1-blue" /></a>
+  <a href="https://github.com/MeowFree/GPT2Image-Pro/releases"><img alt="Release" src="https://img.shields.io/badge/Release-v0.6.0-blue" /></a>
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white" />
@@ -40,7 +40,7 @@ GPT2Image-Pro 的目标不是做一个单机版生图 Demo，而是把 ChatGPT W
 
 项目围绕三个问题设计：
 
-- **账号如何转成服务**：把 Web AT、Codex/Responses 账号、Sub2API 来源账号和外接 API 纳入统一后端池，提供页面生图、Chat/Agent 和 OpenAI 兼容 API。
+- **账号如何转成服务**：把 Web AT、Codex/Responses 账号、Sub2API 来源账号、外接 API 和 Adobe Firefly 后端纳入统一后端池，提供页面生图、Chat/Agent 和 OpenAI 兼容 API。
 - **服务如何可控交付**：通过套餐能力矩阵、API Key 额度、分组倍率、并发队列、审核策略、积分流水和 SLA 监控控制不同用户能用什么、能用多少、按什么价格用。
 - **生图如何更像产品能力**：同时支持普通生图、图生图、批量、瀑布流、Chat 上下文生图和 Codex 风格 Agent 迭代，而不是只暴露单个裸接口。
 
@@ -62,7 +62,7 @@ GPT2Image-Pro 的目标不是做一个单机版生图 Demo，而是把 ChatGPT W
 
 平台支持把不同来源的生图能力放进统一调度层：
 
-- **ChatGPT Web 账号**：适合低分辨率、Web 能力、低成本或 Web-first 场景。Web 生图分辨率不可严格控制，不能保证 4K。
+- **ChatGPT Web 账号**：适合 Web 能力、低成本或 Web-first 场景。Web 生图原生分辨率不可严格控制，但可由「分辨率超分」自动补足到目标尺寸（含接近 4K，见特性 5）。
 - **Codex/Responses 账号**：适合 Responses 语义、图片工具、Chat/Agent、多轮上下文和更高分辨率输出。
 - **OpenAI 兼容外接 API**：适合接入第三方网关或用户自己的上游服务，平台尽量按 OpenAI 风格透传。
 - **Mixed 分组**：可把 Web、Codex 和外接 API 放进同一业务分组，按尺寸、请求类型、force web 范围、优先级、权重、冷却和错误状态自动选择后端。
@@ -80,12 +80,34 @@ GPT2Image-Pro 的目标不是做一个单机版生图 Demo，而是把 ChatGPT W
 
 Chat 模式和 Agent 模式分开：Chat 更适合用户主动对话和上下文创作；Agent 更适合自动查资料、生成、判断、继续迭代的任务型流程。
 
+### 4. Adobe Firefly 图像/视频直连后端
+
+平台内置 Adobe Firefly 直连后端，把 Adobe 侧的图像和视频能力也产品化进同一调度层：
+
+- **直连出图**：直连 Adobe Firefly 出图，支持图像族（gpt-image-2/1.5 与 nano-banana 系列）与视频族（sora2/veo31/kling 等 7 族）；经 Go TLS 旁路过风控，自管 Adobe 账号/token 池，不依赖外部进程。
+- **挂入分组兜底**：作为“特殊 firefly account 成员”挂入现有分组，按优先级参与调度；配低优先级即作兜底层，在 Web/Codex 限流或耗尽时顶上。
+- **强制路由与兼容转换**：`force_firefly` 标志或 `firefly-*` 模型名可强制走 Adobe；收到后把站内标准请求兼容转换成 Firefly 格式（尺寸→比例/分辨率、质量→detailLevel、默认族 gpt-image-2、图生图 referenceBlobs），不支持的参数静默忽略。
+- **计费与监控**：视频 30 积分/秒 × 时长 × 模型族倍率；图像/视频每模型族倍率均可配；全局状态监控含 Adobe 健康块与独立视频统计。
+- **账号导入与换号重试**：直连模式自管 Adobe cookie 账号池，后台支持单条与批量导入（粘贴多份 cookie，逐条刷新验证、按 Adobe 身份去重）；同一后端（伪账号）内出图遇 429/配额/鉴权会自动轮换账号重试，本后端账号轮完才交外层切其它 Adobe 后端。导出 cookie 用仓库附带的 `tools/adobe-cookie-exporter/`（Chrome/Edge MV3 浏览器扩展，思路参照原 adobe2api 项目）：登录 `firefly.adobe.com` 后一键导出 Adobe/Firefly 登录 cookie（含 HttpOnly 会话 cookie），导出的 JSON 与后台导入框直接兼容。
+
+路由与兜底细节见 `docs/adobe-firefly-routing.md`，兼容转换细节见 `docs/adobe-firefly-compat.md`。
+
+### 5. 出图分辨率超分与高清修复
+
+平台在最终图落库前做两道**相互独立**的服务端后处理，解决「上游返回图分辨率不达标、画质偏软」——尤其 Web、Codex 等后端不严格遵循请求尺寸：
+
+- **分辨率超分（自动）**：当最终图较长边低于请求目标的 2/3 时，用 Real-ESRGAN（general-x4v3）放大 4 倍，再按比例缩到目标边长（`fit: inside`，不裁剪、不改宽高比）；若上游图极小、放大 4 倍后仍不足目标，则以放大结果为准、不做模糊拉伸（此时输出可能仍略小于目标）。因此 **Web / Codex 出图也能自动补足到接近 4K 的目标分辨率**。CPU 推理，单张 512→2048 约 1-2 秒，按 tile 分块限制内存峰值、并发执行；仅对最终图触发，由系统设置 `IMAGE_SUPER_RESOLUTION_ENABLED` 控制（默认关）。
+- **高清修复（手动）**：与超分独立的可选增强。用户在创作页勾选「高清修复」或 API 传 `hd_repair=true` 时，用 SCUNet 对最终图做盲复原（去噪、去压缩块、增强质感，**不改分辨率**）。CPU 推理较重（512 约 11 秒、1024 约 35 秒），服务端**全局串行排队**（同时最多一个修复推理）以防并发打满机器，较长边超过 2048 的超大图跳过；由系统设置 `IMAGE_RESTORATION_ENABLED` 控制（默认关），需用户手动勾选。
+- **组合与容错**：两者可叠加，顺序为「先修复（原分辨率、省算力）再超分（放大到目标）」；均不裁剪、不改宽高比，任一步失败自动回退原图、不阻断出图。
+
 ## 能力概览
 
 - **页面创作**：文生图、图生图、逐行批量、瀑布流、Chat 生图、Agent 自动迭代、图库、历史记录、参考图引用和发送到其他创作入口。
 - **OpenAI 兼容 API**：`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/images/{task_id}`、`/v1/responses`、`/v1/agents/images`、`/v1/models`、`/v1/credits`。
 - **异步图片任务**：图片生成和编辑接口支持同步返回，也支持 `async`、`callback_url` 和任务查询。
-- **账号池与调度**：Web 账号、Codex/Responses 账号、外接 API、mixed 分组、优先级、权重、并发、排队、冷却、错误标记、分组倍率和 Sub2API 同步任务。
+- **账号池与调度**：Web 账号、Codex/Responses 账号、外接 API、Adobe Firefly 后端、mixed 分组、优先级、权重、并发、排队、冷却、错误标记、分组倍率和 Sub2API 同步任务。
+- **Adobe Firefly 后端**：图像（gpt-image-2/1.5、nano-banana 系列）和视频（sora2/veo31/kling 等 7 族）直连出图，挂入分组按优先级兜底，支持 `force_firefly` 强制路由、站内请求兼容转换、按模型族倍率计费和独立视频统计。
+- **分辨率超分与高清修复**：最终图自动超分校准到目标分辨率（Real-ESRGAN，Web/Codex 也可补足到接近 4K），并可选 SCUNet 高清修复（盲复原、手动开、服务端串行）。
 - **计费与套餐**：能力矩阵、套餐订阅、按量积分包、API Key 独立额度、尺寸价格曲线、Chat/Agent 轮次价格、积分流水和用户侧计费明细。
 - **运营后台**：三级管理员、用户管理、公告、工单红点、状态监控、SLA、历史错误、照片销毁、内置定时任务和系统设置。
 - **注册机辅助工具**：仓库附带 `注册机/`，可按示例配置批量生成本项目可导入的 ChatGPT Web AT；在合适的代理和邮箱服务配置下，可支撑数百并发生成 Web AT。该工具是账号准备辅助，不是 Web 应用运行必需组件。
@@ -116,6 +138,14 @@ Chat 模式和 Agent 模式分开：Chat 更适合用户主动对话和上下文
       <br />
       <strong>用户管理</strong>
     </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/adobe_account_admin.png" alt="Adobe account admin" />
+      <br />
+      <strong>Adobe 账号管理（Admin · Adobe 后端）</strong>
+    </td>
+    <td width="50%"></td>
   </tr>
 </table>
 

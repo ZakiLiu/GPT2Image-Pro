@@ -1093,13 +1093,52 @@ describe("image backend pool scheduler selection", () => {
     expect(update?.values.metadata).toMatchObject({
       source: "sub2api_postgres",
       scheduler: {
-        errorEwma: 0.4,
-        durationMsEwma: 12_000,
+        // EWMA alpha=0.4:0.25*0.6 + 1*0.4 = 0.55;10000*0.6 + 20000*0.4 = 14000。
+        errorEwma: 0.55,
+        durationMsEwma: 14_000,
         successStreak: 0,
         failStreak: 1,
         lastObservedAt: expect.any(String),
       },
     });
+  });
+
+  it("健康惩罚按 lastObservedAt 时间衰减:久未观测的旧故障号让位给刚失败的号之外、并随时间淡出复探", async () => {
+    const now = Date.now();
+    dbMock.state.accounts = [
+      {
+        // 刚刚失败(惩罚全额)→ 应被降级。
+        ...makeAccount(1),
+        priority: 10,
+        metadata: {
+          scheduler: {
+            errorEwma: 0.9,
+            failStreak: 5,
+            lastObservedAt: new Date(now).toISOString(),
+          },
+        },
+      },
+      {
+        // 同样的高错误率,但一小时前才观测到 → 惩罚已指数衰减趋 0 → 应被优先复探。
+        ...makeAccount(2),
+        priority: 10,
+        metadata: {
+          scheduler: {
+            errorEwma: 0.9,
+            failStreak: 5,
+            lastObservedAt: new Date(now - 60 * 60_000).toISOString(),
+          },
+        },
+      },
+    ];
+
+    const result = await resolveImageBackendPoolConfig({
+      userId: "user-a",
+      requestKind: "responses",
+    });
+
+    expect(result?.memberType).toBe("account");
+    expect(result?.memberId).toBe("acct-2");
   });
 
   it("reactivates limited API backends after a successful retry", async () => {
@@ -1449,6 +1488,37 @@ describe("image backend pool scheduler selection", () => {
 
       expect(result?.memberType).toBe("adobe");
       expect(result?.memberId).toBe("adobe-1");
+    });
+
+    it("把 fireflyOnly 盖在解析结果 config 上(供换号重试保持只走 Adobe)", async () => {
+      dbMock.state.accounts = [{ ...makeAccount(1), priority: 1 }];
+      dbMock.state.adobes = [makeAdobe(1, { priority: 50 })];
+
+      // firefly-* 模型:fireflyOnly 盖 true,且只选到 adobe。
+      const firefly = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+        requestedModel: "firefly-nano-banana-pro",
+      });
+      expect(firefly?.memberType).toBe("adobe");
+      expect(firefly?.config.backend?.fireflyOnly).toBe(true);
+
+      // force_firefly 同样盖 true。
+      const forced = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+        forceFirefly: true,
+      });
+      expect(forced?.config.backend?.fireflyOnly).toBe(true);
+
+      // 普通请求不盖(undefined/false)。
+      dbMock.state.accounts = [makeAccount(1)];
+      dbMock.state.adobes = [];
+      const normal = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+      });
+      expect(normal?.config.backend?.fireflyOnly).toBeFalsy();
     });
   });
 });

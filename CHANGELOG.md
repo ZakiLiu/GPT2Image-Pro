@@ -2,6 +2,148 @@
 
 本文件记录各发布版本的变更。版本格式 `v<MAJOR>.<MINOR>.<PATCH>`。
 
+## v0.7.0 (2026-07-01)
+
+本版围绕「号池自动化」与「出图质量/一致性」两条线:后台新增 ChatGPT 注册机(可随主镜像发布的 sidecar,自助注册养号 + 号池自动维持 + 代理/域名/IP 策略),给出图接上「分辨率超分校准」(上游图偏小时自动放大到目标尺寸)与可选的「高清修复」,并从根上修掉「同参考图/同提示词串出同一张图」的上游内容缓存问题;部署侧改为 standalone 自服务静态 + 3308(主)/3307(备)蓝绿。
+
+### 新增
+
+- **ChatGPT 注册机(号池自动化)**:后台新增「注册机」Tab,集成 ChatGPTRegister 自助注册养号,产出账号直接进生图号池。打包为可随主镜像一起发布的 **sidecar 容器**。支持:**号池自动维持**(把可用号数量稳定在设定值,低于阈值自动补注册);**IP 自动刷新**(「每分钟一次」与「每 100 次尝试一次」取其慢者,刷新 URL/参数可配);**禁用代理**开关(不配代理时直连本机 IP,单独按钮);**轮换域名**开关(每一轮用不同的启动域名)。相关配置收在注册机 Tab 内、不进总配置面板;启用/停用等开关点击即时保存。
+- **出图分辨率超分校准(Real-ESRGAN)**:上游(尤其 codex)常返回分辨率明显低于请求的图;当实际较长边 < 目标较长边的 **2/3** 时,用 Real-ESRGAN general-x4v3 放大并增强细节,再按比例缩到目标边长(不裁剪、不改宽高比),其余情况原样返回。由管理端主开关 `IMAGE_SUPER_RESOLUTION_ENABLED` 控制,CPU 单张 512→2048 约 1.6s;是否触发为纯函数(便于单测),失败回退原图、不阻断出图。
+- **高清修复(SCUNet,可选、默认关)**:与超分**相互独立**的请求级「高清修复」开关——勾选时用 SCUNet 对最终图做盲复原(去噪 / 去压缩块 / 增强质感,**不改分辨率**);超分负责「放大到目标尺寸」、修复负责「提质感」,两者可叠加(先修复再超分)。CPU 推理较重(512 约 11 秒、1024 约 35 秒),服务端**全局串行排队**防并发打满机器;由管理端主开关 `IMAGE_RESTORATION_ENABLED` 门控,需用户手动勾选,默认关。
+
+### 修复
+
+- **同参考图/同提示词串出同一张图(上游内容缓存)**:客户直连(未经中间代理)时,相同输入被上游按 `prompt_cache_key`/内容缓存命中,反复返回同一张图。三处收口:`prompt_cache_key` 并入完整输入签名(含参考图),杜绝不同参考图命中同一缓存;每请求追加唯一盐,支持「同图不同结果」;images 直连路径注入每请求**零宽 nonce** 破上游内容缓存(对最终图不可见)。
+- **用户侧输入错误不再误判/误重试**:提示词过长、参考图超数、输入图过大等**用户错误**归类为 `user_error`——不计入平台 SLA、也不触发换号重试;SLA 侧与调度侧两处分类器共用同一份模式,避免口径漂移。
+
+### 部署与文档
+
+- **注册机 sidecar 化 + 运行时 env 迁出 release**:注册机改为独立 sidecar 容器,可打入镜像并随主应用发布;部署 runbook 记录运行时 env 从 release 目录迁出、standalone 自服务静态、3308/3307 蓝绿发布流程(删除过时的 `/var/www` alias 与 3303)。
+- **文档订正**:更正「codex 直连 images 端点尊重 size」的错误注释;补充图像后端池调度策略文档与索引。
+
+## v0.6.4 (2026-06-28)
+
+在早期改动(对话生图同图修复、工具限流按 429 处理、健康度实时化、文档目录与外部 API 并入)基础上,本版新增 Adobe 伪账号批量导入真实账号与 cookie 导出扩展;把 Adobe 直连改为「伪账号内换号重试到底、再交外层切后端」;让「遇错常驻」后端不再被 dead-relay 踢空;并把后台 SLA 状态页重写为按窗口聚合 SQL 的精确统计。
+
+### 新增
+
+- **Adobe 伪账号下批量导入真实 Adobe 账号**:在某个 direct 模式 Adobe 后端(伪账号)下,一次粘贴多份 IMS cookie 批量导入真实 Adobe 账号——逐条刷新验证(best-effort,单条失败不阻断、逐条回报原因),按 Adobe 稳定身份(accountUserId/邮箱)去重,每条成功即落库(整体请求超时也不丢已导入,重新粘贴自动跳过已导入)。配套仓库附带 `tools/adobe-cookie-exporter/`(Chrome/Edge MV3 浏览器扩展,思路参照原 adobe2api)一键导出 Adobe/Firefly 登录 cookie(含 HttpOnly),导出 JSON 与后台导入框兼容。
+
+### 后端调度与稳定性
+
+- **Adobe 后端按所在分组「车道」隔离参与候选**:此前 Adobe 后端对所有图像请求始终参与候选、不分 web/codex 偏好,导致 web 偏好请求在 web 账号失败后**漏到 codex 车道的 Adobe 直连后端**,被其单账号 429 接盘、整站图像失败堆在它名下。现按其所在分组的 `backendType` 隔离:`web` 分组的 Adobe 只服务 web 阶段、`responses(codex)` 分组的只服务 codex 阶段、`mixed` 分组不限车道(谁都可请求);`force_firefly`/`firefly-*` 请求不受限(必走 Adobe)。与账号/API 的「web 请求只走 web 分组内」范围隔离对齐。
+- **Adobe 直连「伪账号内换号重试到底」**:Adobe 直连(图像+视频)此前只取一个账号 token 调一次,撞 `submit failed: 429`/配额/鉴权即整次失败;现改为在单个 Adobe 后端内逐账号轮换重试(撞可轮换错误就标记当前 token、换下一个可用账号),本后端账号轮完才上抛,再由外层池切换到其它 Adobe 后端继续轮换——两级都重试到底,本后端下批量导入的多账号不再一撞 429 即失败。
+- **「遇错常驻」(always_active)后端遇 dead-relay 不再被踢**:常驻 API/Adobe 后端遇 502「HTML response body」等 dead-relay 终态错误不再被自动标 error 踢出(此前只豁免临时错误,导致常驻 relay 撞 502 被踢空触发「没有可用的默认生图后端」);账号(web/codex)OAuth 终态错误维持原样。
+- **firefly/nano-banana 请求不再泄漏到非 Adobe 后端**:换号重试保持 `fireflyOnly`、chat/agent 拒绝 firefly,并加不变量兜底。
+- **上游不可用按 dead-relay 踢出轮换**:502「service temporarily unavailable」、504「HTML response body」标 error 踢出(按运维要求)。
+
+### 可观测性 / SLA
+
+- **后台 SLA 状态页按窗口精确统计**:24h 与 7d 改用按各自窗口的聚合 SQL,修复「7 天与 24 小时显示相同」(原因是 1 万行带帽样本在高峰塌缩成同一批最近行);耗时分布、审核修剪重试也按窗口精确。
+- **Web 后端静默超时归因为「疑似审核拒绝」**:ChatGPT 网页后端对违规内容常静默挂到 20 分钟超时(无审核码/拒绝文本),现按标记从「平台错误」移到「审核拦截」,避免隐性审核被淹没在平台超时里。
+
+### 导入与设置
+
+- **Web AT 导入更稳/更清晰**:容忍任意分隔符按 `eyJ` JWT 形态兜底提取;导入结果与报错明晰化(识别/写入/失败计数 + 首个错误)。
+- **审核拦截级别注明生效条件**:用户档案与 API Key 的审核级别均注明「仅当启用审核拦截时生效」,并标注用户档案设置仅作用于网页端生成。
+
+### 修复
+
+- **对话生图同提示词出同图(并发复用同一会话)**:对话生图(千问灵感等)走 ChatGPT web 原生会话续接(复用上一条 `conversationId`/`parentMessageId`),多个并发的同历史请求会锚定同一节点 fork 出几乎一样的图。修法:对「续接会话」加进程内并发互斥——同一会话同时只放行一个续接占用,其余并发请求一律改开新会话,从源头消除同图(不引入随机扰动)。
+- **ChatGPT 画图工具限流被误判为「无图」**:账号画图工具(`image_gen.text2im`)被账号级限流时,上游不返图,而以 `content_type=system_error`、`name=ChatGPTAgentToolRateLimitException` 的消息塞进 o/v 流;此前 SSE 解析两条路径都不命中(`message` 字段是对象、文案无带空格的 "rate limit"),降级成 "no image output" → 丢进 15 分钟通用临时桶、SLA 看不出是限流。修法:新增 `extractWebSystemError` 优先抽出 system_error 的 name+text;`classifyFailure` 增设工具限流分支(置于 usage-limit 之前)按 `limited` 处理,上游给出「resets in …」时按真实重置时间冷却(实测多为每日上限约 22 小时),否则回落独立桶 `IMAGE_BACKEND_TOOL_RATE_LIMIT_COOLDOWN_MINUTES`(默认 3 分钟,可配);并入 `isRecoverableBackendError`/`isResetAwareLimitedBackendError` 保住换号重试。
+- **健康度调度实时性不足**:调度健康评分对账号「变差/恢复」反应偏慢、且只重排不熔断。两处提速:EWMA 平滑系数 0.2→0.4(近期结果权重翻倍,双向反应更快);`backendHealthPenalty` 新增按 `lastObservedAt` 的指数时间衰减(半衰期 3 分钟)——刚失败全额降级、久未观测的旧惩罚淡出,让疑似已恢复/闲置的号重新进轮换、定期复探。硬失败仍由冷却兜底,健康衰减只管软降级。
+- **ChatGPT web 原始流分片泄漏**:`extractWebStreamError` 命中错误条件却抽不到可读字段时,曾把原始 `{"o":"add","v":{…}}` 分片当错误回显;`webErrorPayloadMessage` 现递归进 `v`、抽不到则只回限流/配额关键词短语,绝不回显裸分片。
+
+### 文档
+
+- **外部 API 异步视频流程置顶**:外部 API 的「视频」小节由「同步默认 + async 选项」改为异步优先——新增「异步流程」三步(提交 `async:true` → 轮询 `GET /v1/videos/{id}` 或 `callback_url` 回调 → 取 `video_url`),补轮询间隔与终态/失败 `error` 形状,把同步降级为仅短片段兜底的 keep-alive 提示(契合站内 UI 默认异步:视频是长任务、同步直连易被中途掐断丢产物)。
+- **外部 API 并入「系统文档」,文档结构收敛**:外部 API 参考(图像/视频)整体并入「系统文档」——控制台 `/dashboard/backend-help` 与公开 `/docs/system` 同源,均渲染「系统架构与请求路由 + 外部 API 参考」(`BackendDocs`)。因 dashboard 不能引 fumadocs 的 `.prose` CSS(会用 @layer 覆盖布局),外部 API 的 MDX 改用一套自带 Tailwind 样式、语义化 token 的 `docsMdxComponents` 内联渲染(零外部 CSS 依赖、深浅色自适应、保留标题锚点)。旧 `/docs/external-api` 307 重定向到 `/docs/system`。
+- **文档目录落地页 + 侧栏收敛**:`/docs` 根改为渲染 `index.mdx` 的「文档目录」(列出系统文档〔含外部 API,带「视频 · 异步流程」直达锚点〕、Adobe 路由/兼容,附快速开始);`/docs` 侧栏经 `content/docs/meta.json` 收敛为「文档目录 / 系统文档(含外部 API)/ Adobe 路由 / Adobe 兼容」四个平级页。
+
+## v0.6.3 (2026-06-23)
+
+新增「Adobe 来源 api 后端」能力与外部 API 跨域(CORS);补齐外部 API 参考文档;修复用户侧格式错误被误判为平台错误。
+
+### 新增
+
+- **Adobe 来源 api 后端**:部分提供商 API 是 OpenAI/gpt 格式但上游实为 Adobe;现可把这类 `image_backend_api` 标记 `adobe_sourced`,使其(1)**按 Adobe 口径计费**——`config.backend.billingMultiplier = 命中组倍率 × 成员倍率`,复用 Adobe 伪账号同一两级倍率链(普通 api 仅组倍率);(2)**纳入 firefly 调度**——候选过滤 `(!fireflyOnly || adobeSourced)`,与真 Adobe 同池按 priority 竞争;(3)**firefly-\* 反向转换**——纯模块 `adobe-sourced-firefly.ts` 把 `firefly-*` 请求截家族名为出站 gpt 模型(`backendModel` 可选覆盖)、由全量 id 推 size,派发层对此绕开 `getModel` 的 gpt-image-only 校验,故 nano-banana 家族也可由 api 后端服务;`force_firefly` 下普通 gpt 请求直接以 gpt 格式服务。后台 api 表单新增「Adobe 来源」开关 + 成员倍率输入 + 实时倍率算例(nano-banana-pro 含模型×组×成员)。迁移 0045 加 `adobe_sourced` + `billing_multiplier` 两列。默认惰性:不开则行为不变。设计文档见 `docs/plan/2026-06-23-adobe-sourced-api-backend.md`。
+- **外部 API 跨域(CORS)**:外部 API(`/v1`、`/api/v1`)开放浏览器跨域,Bearer 鉴权不带 cookie、不开凭据,故 `*` 安全;预检回显 `Access-Control-Request-Headers`(兼容 OpenAI SDK 的 `x-stainless-*`)。是否允许由管理员系统设置 `EXTERNAL_API_CORS_ENABLED`(默认开)控制;落在 Node 路由层(Edge middleware 读不到 DB 设置)。
+- **外部 API 参考文档**:新增 `/docs/external-api`——鉴权、图像(`/v1/images/generations`、`/edits`、`GET /v1/images/{id}`)、视频(`/v1/videos/generations` 同步/异步 + `callback_url`、`GET /v1/videos/{id}`)、其它端点与错误码,对照真实 handler schema 编写。
+- **视频各模型积分对照表**:创作页「视频」面板按族 × 时长展示各模型积分消耗(与预估、扣费同口径),选模型前即可比价。
+
+### 修复
+
+- **SLA 分类:用户侧上传格式错误被误判为平台错误**:`classifyGenerationError` 缺对管线 `image_generation_user_error` 标签的兜底,导致客户端上传 mpo/avif 被上游 400 拒绝这类用户错误落进 `platform` 默认分支——既在后台标成「平台」,又被计入平台 SLA 分母。修法:在审核判定之后加标签兜底归 `user_request`(审核拒绝同样带该标签,故必须排其后);分类读取时计算,历史行无需回填即自动纠正。
+
+## v0.6.2 (2026-06-22)
+
+视频生成支持异步 + 按 id 查询;图库新增「视频」tab;修复视频后端 inflight 租约泄漏导致的视频全线失败。
+
+### 新增
+
+- **视频生成异步**:`/v1/videos/generations` 支持 `async=true` / `callback_url`——立即返回 `task_...`,后台生成,凭 `task_id` 或 `generation_id` 轮询 `GET /v1/videos/{id}`(先查内存异步任务,未命中按 `generation_id` 从 `video_generation` 持久取回,跨重启/多实例可查;handler 校验 `userId` 归属防越权)。同步 keep-alive 保留为默认并补 `generation_id`。视频是长任务,异步避免长连接被代理/客户端掐断后产物丢失。
+- **图库「视频」tab**:图库新增「视频」tab,按时间倒序内联 `<video>` 播放已生成视频,展示 时长·比例·分辨率(视频不参与多选/批量下载)。存储路由补 `.mp4`=`video/mp4`(及 webm/mov):此前视频被当 `application/octet-stream`、浏览器 `<video>` 拒播——同时修复创作页视频面板播放。历史记录不加 tab。
+
+### 修复
+
+- **视频后端 inflight 租约泄漏 → 视频全线失败**:视频管线经 `getEffectiveConfig` 为 Adobe 成员获取 inflight 租约(进程内计数 + DB 租约)但全程不释放(图像管线有 `releasePoolBackendConfigLease`,视频侧此前完全没有)。每个视频请求(成功/失败都)泄漏一个租约,堆到 concurrency(默认 10)后该 Adobe 成员被 `hasBackendCapacity` 判为满载、彻底踢出候选,后续视频请求一律解析失败为「无可用 Adobe 视频后端」(单进程内重启才清、DB 租约约 18 分钟才过期)。修法:`releaseInflightLease()` 在 `getEffectiveConfig` 之后所有退出路径(非 direct 后端 / 积分不足 / 失败退款 / 成功)释放租约。已实测异步出片全链路通(8/8)。
+- **视频异步失败的错误 shape**:异步失败的错误信息此前被展开落在 `task.message`,改用 OpenAI 错误信封 → 规范 `task.error:{message,type,code}`(与图像异步一致)。
+
+## v0.6.1 (2026-06-22)
+
+修复 Adobe gpt-image 图生图(`/v1/images/edits`)经 Adobe 后端 100% 失败;`/v1/models` 补全 Firefly 模型;创作页视频展示预估价格。
+
+### 新增
+
+- **控制台视频价格**:生视频面板新增「预计消耗 N 积分」及其构成(时长 × 每秒基价 × 模型族倍率,再叠加 Adobe 后端倍率),随模型族/时长实时更新。抽出纯函数 `applyVideoBackendMultiplier`,扣费侧与前端预估共用同一口径,确保展示价 = 实扣价。
+
+### 修复
+
+- **Adobe gpt-image 图生图全线失败**:`/v1/images/edits` 路由到 Adobe direct 后端时 Adobe 返 400「Image edit use case requires a reference image」,该路径自 v0.6.0 上线起从未成功(生产日志佐证)。
+  - 根因:gpt-image edit 的 `referenceBlobs.usage` 用了 `general`,Adobe 不把它当作 edit 源图。v0.6.0 误判"与 nano-banana 一致用 general";而早期"subject 无效"的结论实为当时 `module` 仍是 `text2image`(漏改)导致退化成文生图、忽略了参考图。
+  - 经对真实 Adobe API 实证(`scripts/probe-adobe-edit.ts`):gpt-image(2/1.5)edit 必须 `usage=subject`,nano-banana(pro/2)edit 必须 `usage=general`,两族恰好相反。故 gpt-image 分支改 `subject`、nano-banana 保持 `general`(现有实证背书)。完整 edit 链路(submit→轮询→下载)已实测出图。
+- **`/v1/models` 不返回 Firefly 模型**:此前只列默认图像模型 + GPT chat/responses,API 用户无从发现 Firefly。现补入 5 个图像族级 id(`firefly-gpt-image-2`/`1.5`、`firefly-nano-banana`/`nano-banana2`/`nano-banana-pro`,分辨率/宽高比走 `size`)+ 58 个视频全量 id(参数编码在 id 内),由 `externalApi.images.generate` 能力门控。
+- **`/api/storage` 全 500、所有图片下载/缩略图挂掉**:sharp 升 0.35 后,其 `@img/sharp-libvips-linux-x64` 运行时 dlopen 的 libvips `.so`(约 18MB)未被 Next standalone 打包(只留 stub),`import sharp` 加载即抛「Could not load the sharp module」→ 存储路由整体 500 → image_url 下载与列表缩略图全失败。照 onnx `.so` 的办法,next.config `outputFileTracingIncludes` 显式 trace `@img/sharp-libvips-linux-x64@*` 与 `@img/sharp-linux-x64@*`(版本通配)。
+- **生成失败把裸 DB 错误回传前端(issue #35)**:后端池查询瞬时失败时,Drizzle「Failed query: select …」(含列名)经兜底 catch 原样显示在用户「生成失败」toast。新增 `error-sanitize`:DB/内部异常记服务端日志 + 回通用可重试消息,已知用户级消息(积分不足等)原样透传。
+- **`/v1/images/{id}` 按 generation_id 查返回 404**:该接口此前只查进程内异步任务存储(仅 `async=true` 创建、`task_<uuid>` 为键、30 分钟 TTL、多实例不共享、重启即清),同步请求拿到的是 `generation_id`,查必 404。新增 DB 回退:内存未命中时按 `generation_id` 经 `getGenerationById` 持久取回(handler 内校验 `userId` 归属防越权),对同步/异步、跨重启/多实例都稳。
+
+## v0.6.0 (2026-06-21)
+
+接入 Adobe Firefly 作为独立后端生态:图像(gpt-image / nano-banana 系列)与视频(sora2 / veo31 / kling 等 7 族)直连出图,经 Go TLS 旁路过风控,自管 Adobe 账号/token 池;统一到既有账号池调度、计费、监控与 v1 API 体系。迁移 0040-0044。
+
+### 新增
+
+- **Adobe Firefly 图像直连**:完整移植逆向逻辑直连 Firefly,不依赖外部进程。
+  - 模型 id `firefly-<family>-<resolution>-<ratio>`,family ∈ gpt-image-2 / gpt-image-1.5 / nano-banana / nano-banana2 / nano-banana-pro;resolution 1k/2k/4k;ratio 1x1/16x9/9x16/4x3/3x4。可作 `model` 用于 `/v1/images/generations`、`/v1/images/edits`。
+  - gpt-image **质量用户可控**(low/medium/high → Firefly detailLevel 1/3/5;auto 走后端默认),并区分 gpt-image **2 / 1.5** 版本(版本进 model 名,upstreamModelVersion 由名字定)。
+  - 图生图走 gpt-image,参考媒体用 `referenceBlobs`。
+- **Adobe Firefly 视频生成**:
+  - 7 族(sora2 / sora2-pro / veo31 / veo31-ref / veo31-fast / kling-o3 / kling3),model id `firefly-<family>-<dur>s-<ratio>[-<res>]`;支持图生视频(首帧)。
+  - 创作页新增「视频」tab(可 @ 历史图作首帧)、SSE 长任务路由 `/api/videos/generate`、外部 API `/v1/videos/generations`(OpenAI-images 风格响应)。
+  - 计费 30 积分/秒 × 时长 × 模型族倍率;`video_generation` 表落库 + 幂等扣费/失败退款 + 产物 re-host。
+- **调度接入**:Adobe 伪装成特殊 "firefly" account 成员,挂入分组按优先级参与调度(配低优先级即作兜底层);`force_firefly`(API,下划线/驼峰均收)强制把任意请求路由到 Adobe,标准参数兼容、默认族 gpt-image-2。
+- **计费倍率体系**:整个 Adobe 后端倍率(后端表单)+ 图像/视频**每模型族倍率**(Adobe tab「模型计费倍率」表格);最终积分 = 基础 × 模型族倍率 × Adobe 后端倍率 × 分组倍率。
+- **Adobe 账号管理**:admin「Adobe 后端」tab 支持 cookie 导入并验证、token 轮换、Firefly 余额展示;`gpt_image_quality`(auto 映射目标)后端可配。
+- **全局状态监控接入**:后端健康新增「Adobe Firefly」块;时延/SLA 新增 adobe 桶;独立「视频生成」统计区块(读 `video_generation`,按状态/模型族/积分/时长)。
+- **创作页**:选 Firefly 模型时隐藏 GPT 模型选择器与思考强度、置灰 adobe 不消费的参数;新增 Firefly 图像/视频选项。
+- **基建**:Go TLS 旁路(chatgpt-web-proxy)白名单支持 `.adobe.io/.adobe.com/.adobelogin.com`;API 文档补充 Firefly 模型、`force_firefly`、`/v1/videos/generations`。
+
+### 变更
+
+- **模型计费倍率入口去重**:`IMAGE_MODEL_MULTIPLIERS`/`VIDEO_MODEL_MULTIPLIERS` 从「系统设置 · 积分」面板隐藏,统一在 Adobe tab 的表格编辑(同一份数据)。
+
+### 修复
+
+- **调度租约/touch 漏处理 adobe 成员**:`acquirePoolMemberInflightLease`/`touchSelectedMember` 把 adobe 当 account 查表 → 租约恒 "full" → adobe 永不被选中("无可用 Adobe 视频后端")。补 adobe 分支。
+- **pool-adobe 生图无限递归**:`retryPoolBackendResult` 对 adobe 提前 return 未清 reportResult → 同步无限递归(Maximum call stack size exceeded)。改为带 reportResult 的池后端统一进主循环。
+- **pool-adobe 结果未上报**:`reportPoolBackendResult` 类型守卫漏 pool-adobe → 成功/失败计数恒 0、监控显示"成功0·失败0"。补 pool-adobe。
+- **gpt-image 质量锁死**:派发未传 qualityLevel → 一律落最低 detailLevel 1,medium/high 成死码。现透传质量。
+- **gpt-image 图生图被拒**:Adobe 新 API 对 `referenceImages` 返 422,改用 `referenceBlobs`(usage=general)。
+- **公开视频路由 404**:`/v1/videos/generations` 仅建在 `/api/v1`,补镜像到公开 `/v1` 树。
+- **admin Adobe tab 不响应**:`BackendPoolTab` 类型与 Tabs onValueChange 白名单漏 `"adobe"` → 点 Adobe tab 回落到 groups、内容按钮 onClick 不被接管。两处补 adobe。
+- **结果详情积分显示 0**:文生图结果经 visualResults fallback 解析时 `creditsConsumed` 写死 0(影响所有后端)。ResultState 携带真实积分。
+
 ## v0.5.6 (2026-06-20)
 
 ### 变更

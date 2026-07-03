@@ -641,7 +641,7 @@
     },
     "moderation": {
       "title": "Moderation block level",
-      "description": "This setting applies to web generation. External API keys can use their own level.",
+      "description": "This setting applies only to web (creation page) generation and only takes effect when moderation blocking is enabled; requests made with an external API key use that key's own level.",
       "upgradeHint": "Ultra can allow low-risk results. Enterprise can also allow medium-risk results.",
       "disabledByPlan": "Moderation blocking is not enabled for your current plan, so this setting has no effect.",
       "options": {
@@ -691,6 +691,7 @@
       },
       "moderation": {
         "label": "Moderation level",
+        "hint": "The moderation level only takes effect when moderation blocking is enabled; it has no effect when moderation is off.",
         "disabledByPlan": "Moderation blocking is not enabled for your current plan, so API key moderation levels have no effect.",
         "options": {
           "low": "Block low and above",

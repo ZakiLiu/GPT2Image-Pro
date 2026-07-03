@@ -152,6 +152,15 @@ export function parseImportTokensText(
     tokens.refreshTokens.add(match[0]);
   }
 
+  // access token 兜底:扫描任意位置的 JWT(以 eyJ 开头的 base64url 三段)。无论分隔符为何
+  // ——换行/空格/逗号/分号/无分隔拼接/混在文本里——都能稳健提取(OpenAI/ChatGPT access
+  // token 恒为 JWT)。第三段用 (?!eyJ) 不跨入下一个 token,兼容无分隔粘连。
+  for (const match of value.matchAll(
+    /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.(?:(?!eyJ)[A-Za-z0-9_-])+/g
+  )) {
+    addAccessToken(tokens.accessTokens, match[0]);
+  }
+
   for (const token of extractNamedTokens(value, [
     "refresh_token",
     "refreshToken",

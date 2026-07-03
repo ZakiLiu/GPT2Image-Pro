@@ -216,31 +216,25 @@ export function buildFireflyImagePayloadCandidates(params: {
       return [basePayload];
     }
 
-    const subjectReference: FireflyImagePayload = {
-      ...basePayload,
-      referenceBlobs: sourceImageIds.map((imgId) => ({
-        id: imgId,
-        usage: "subject",
-      })),
-      modelSpecificPayload: {},
-    };
-
-    const referenceImage: FireflyImagePayload = {
+    // gpt-image 图生图:参考媒体必须走 referenceBlobs（每项 {id, usage}），
+    // Adobe 新 API 已拒收 referenceImages/referenceVideos（422 validation_error）。
+    // usage 必须是 "subject":经对真实 Adobe API 实证（scripts/probe-adobe-edit.ts），
+    // module=image2image + usage=subject 才返回 200；usage=general 会 400
+    // "Image edit use case requires a reference image"（Adobe 不把 general blob 当 edit 源图）。
+    // 早期提交曾误判 "subject 无效",实为当时 module 仍是 text2image（漏改），导致退化成文生图。
+    const edited: FireflyImagePayload = {
       ...basePayload,
       generationMetadata: {
         module: "image2image",
         submodule: "ff-image-generate",
       },
-      referenceBlobs: [],
-      referenceImages: sourceImageIds.map((imgId) => ({ id: imgId })),
+      referenceBlobs: sourceImageIds.map((imgId) => ({
+        id: imgId,
+        usage: "subject",
+      })),
     };
 
-    const localBlobReference: FireflyImagePayload = {
-      ...referenceImage,
-      referenceImages: sourceImageIds.map((imgId) => ({ localBlobRef: imgId })),
-    };
-
-    return [subjectReference, referenceImage, localBlobReference];
+    return [edited];
   }
 
   const basePayload: FireflyImagePayload = {
@@ -271,6 +265,10 @@ export function buildFireflyImagePayloadCandidates(params: {
     return [basePayload];
   }
 
+  // nano-banana(Google) 图生图:usage 必须是 "general"——经实证
+  // （scripts/probe-adobe-edit.ts）,nano-banana 用 "subject" 会 400
+  // "Only general reference images are supported for Google Nano-Banana"；
+  // 与 gpt-image 恰好相反（gpt-image 要 "subject"），故两族不可共用同一 usage。
   const edited: FireflyImagePayload = {
     ...basePayload,
     generationMetadata: {

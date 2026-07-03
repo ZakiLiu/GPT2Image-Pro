@@ -103,6 +103,7 @@ import {
   roundUpCreditAmount,
   validateImageSize,
 } from "../resolution";
+import type { VideoPricingInfo } from "../video-operations";
 import { ImageLightbox, type LightboxGeneration } from "./image-lightbox";
 import { VideoCreatePanel } from "./video-create-panel";
 
@@ -1028,6 +1029,11 @@ const TEXT_MODEL_OPTIONS = [
   { value: "gpt-image-1-mini", label: "GPT Image 1 Mini" },
   ...FIREFLY_MODEL_OPTIONS,
 ] as const;
+// 对话生图/Agent 不提供 firefly:它走 Codex/Responses,与 Adobe 直连不兼容,服务端也会拒收
+// (见 /api/images/chat)。故 chat 图像模型下拉用去掉 firefly 的子集。
+const CHAT_IMAGE_MODEL_OPTIONS = TEXT_MODEL_OPTIONS.filter(
+  (option) => !option.value.startsWith("firefly-")
+);
 const EDIT_MODEL_OPTIONS = [
   { value: "default", label: "Default" },
   { value: "gpt-image-2", label: "GPT Image 2" },
@@ -1221,6 +1227,7 @@ interface CreatePageClientProps {
   imageBasePricing: ImageBaseCreditPricing;
   forceWebPixelRange: ForceWebPixelRange;
   timeZone: string;
+  videoPricing: VideoPricingInfo;
 }
 
 function isImageFile(file: File) {
@@ -1866,6 +1873,7 @@ export function CreatePageClient({
   imageBasePricing,
   forceWebPixelRange,
   timeZone,
+  videoPricing,
 }: CreatePageClientProps) {
   const locale = useLocale();
   const router = useRouter();
@@ -2236,6 +2244,19 @@ export function CreatePageClient({
   const [transparentMatte, setTransparentMatte] = useCreateRuntimeState(
     "transparentMatte",
     false
+  );
+  // 高清修复:默认关闭(用轻量 general-x4v3,快且安全);勾选才用 SwinIR 复原(文字/结构最佳,
+  // 但 CPU 极慢、吃满多核,仅供受控测试)。仅在超分主开关开且上游图偏小触发超分时生效。
+  const [hdRepair, setHdRepair] = useCreateRuntimeState("hdRepair", false);
+  // 分块修复:默认关。勾选后把最终图切成 2×2 web 块逐块 gpt-image-2 重绘再拼接超分(重点修文字),
+  // 逐块单独计费。repairPrompt 为每块提示词(空则用管理端默认)。
+  const [blockRepair, setBlockRepair] = useCreateRuntimeState(
+    "blockRepair",
+    false
+  );
+  const [repairPrompt, setRepairPrompt] = useCreateRuntimeState(
+    "repairPrompt",
+    ""
   );
   const [outputCompression, setOutputCompression] = useCreateRuntimeState(
     "outputCompression",
@@ -3135,7 +3156,7 @@ export function CreatePageClient({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {TEXT_MODEL_OPTIONS.map((option) => (
+        {CHAT_IMAGE_MODEL_OPTIONS.map((option) => (
           <SelectItem key={option.value} value={option.value}>
             {chatImageModelLabel(option.label)}
           </SelectItem>
@@ -3236,6 +3257,73 @@ export function CreatePageClient({
       </label>
     );
   };
+
+  // 高清修复开关:总是可见。开启用 SwinIR 复原(文字/结构最佳,较慢),关闭用 general-x4v3(快)。
+  // 仅在管理端超分主开关开、且上游图较长边不足目标 2/3 触发超分时才实际生效。
+  const renderHdRepairToggle = (params: { id: string; disabled?: boolean }) => (
+    <label
+      htmlFor={params.id}
+      className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+        hdRepair
+          ? "border-primary bg-primary/10 text-primary"
+          : "border-primary/40 bg-primary/5 text-foreground"
+      }`}
+      title={copy(
+        "HD repair (SCUNet): off by default. When on, the final image is restored with SCUNet (denoise / de-blocking / detail enhancement, no size change) — independent of upscaling. It is CPU-heavy (about 11s at 512, 35s at 1024) and runs one-at-a-time server-side, so results take longer. Enable only when you want a cleaner, restored result. Requires the server-side restoration switch to be on.",
+        "高清修复(SCUNet):默认关闭。勾选后,最终图会用 SCUNet 做盲复原(去噪/去压缩块/增强质感,不改分辨率),与放大(超分)相互独立。CPU 推理较重(512 约 11 秒、1024 约 35 秒)、服务端串行排队,出图会更慢。想要更干净、修复过的结果时再开。需管理端开启「高清修复」主开关。"
+      )}
+    >
+      <Checkbox
+        id={params.id}
+        checked={hdRepair}
+        onCheckedChange={(checked) => setHdRepair(checked === true)}
+        disabled={params.disabled}
+      />
+      {copy("HD repair", "高清修复")}
+    </label>
+  );
+
+  // 分块修复开关 + 每块提示词输入。开关总是可见(与后端无关);勾选后展开提示词输入。
+  const renderBlockRepairToggle = (params: {
+    id: string;
+    disabled?: boolean;
+  }) => (
+    <>
+      <label
+        htmlFor={params.id}
+        className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+          blockRepair
+            ? "border-primary bg-primary/10 text-primary"
+            : "border-primary/40 bg-primary/5 text-foreground"
+        }`}
+        title={copy(
+          "Generative repair (gpt-image-2): off by default. When on, the final image is shrunk to the web sweet-spot resolution (~1280) and redrawn once with gpt-image-2 img2img (fixing text/detail while keeping composition and content unchanged), then upscaled to the target. Whole-image redraw means no seams. One extra backend call, billed separately; slower and costlier. Requires the server-side generative-repair switch.",
+          "生成式修复(gpt-image-2):默认关闭。勾选后,最终图缩到 web 甜点分辨率(约1280)、一次性用 gpt-image-2 img2img 整图重绘(修文字/细节、保持构图与内容不变),再超分到目标尺寸。整图一次重绘无接缝。额外调用一次后端、单独计费,更慢也更贵。需管理端开启「生成式修复」主开关。"
+        )}
+      >
+        <Checkbox
+          id={params.id}
+          checked={blockRepair}
+          onCheckedChange={(checked) => setBlockRepair(checked === true)}
+          disabled={params.disabled}
+        />
+        {copy("Generative repair", "生成式修复")}
+      </label>
+      {blockRepair && (
+        <input
+          type="text"
+          value={repairPrompt}
+          onChange={(event) => setRepairPrompt(event.target.value)}
+          disabled={params.disabled}
+          placeholder={copy(
+            "Repair prompt (optional, defaults to server setting)",
+            "修复提示词(可选,留空用默认)"
+          )}
+          className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground"
+        />
+      )}
+    </>
+  );
 
   const renderReferenceMentionMenu = (params: {
     open: boolean;
@@ -3664,6 +3752,13 @@ export function CreatePageClient({
       // 透明抠图回退仅 chat/瀑布流可用,agent 不传(issue #27)。
       if (!agentMode && background === "transparent" && transparentMatte) {
         formData.append("transparent_matte", "true");
+      }
+      // 高清修复:关闭时显式传 false 走轻量 general-x4v3;默认(true)由后端选 SwinIR。
+      formData.append("hd_repair", String(hdRepair));
+      // 分块修复:开关 + 每块提示词(非空才传)。
+      formData.append("block_repair", String(blockRepair));
+      if (blockRepair && repairPrompt.trim()) {
+        formData.append("repair_prompt", repairPrompt.trim());
       }
       if (outputFormat !== "png") {
         formData.append("output_compression", String(outputCompression));
@@ -5386,6 +5481,14 @@ export function CreatePageClient({
               id: "chat-transparent-matte",
               disabled: isChatGenerating || chatMixWebFirstActive,
             })}
+          {renderHdRepairToggle({
+            id: "chat-hd-repair",
+            disabled: isChatGenerating,
+          })}
+          {renderBlockRepairToggle({
+            id: "chat-block-repair",
+            disabled: isChatGenerating,
+          })}
           <Button
             type="button"
             variant="outline"
@@ -6312,6 +6415,11 @@ export function CreatePageClient({
         ...(showThinkingControls ? { thinking: imageThinking } : {}),
         ...(promptOptimizationAllowed ? { promptOptimization } : {}),
         ...(textMixWebFirstActive ? { mix_web_first: true } : {}),
+        hd_repair: hdRepair,
+        block_repair: blockRepair,
+        ...(blockRepair && repairPrompt.trim()
+          ? { repair_prompt: repairPrompt.trim() }
+          : {}),
       }),
     });
 
@@ -6475,6 +6583,13 @@ export function CreatePageClient({
     // 透明抠图回退显式开关(issue #27)。
     if (background === "transparent" && transparentMatte) {
       formData.append("transparent_matte", "true");
+    }
+    // 高清修复:关闭时显式传 false 走轻量 general-x4v3;默认(true)由后端选 SwinIR。
+    formData.append("hd_repair", String(hdRepair));
+    // 分块修复:开关 + 每块提示词(非空才传)。
+    formData.append("block_repair", String(blockRepair));
+    if (blockRepair && repairPrompt.trim()) {
+      formData.append("repair_prompt", repairPrompt.trim());
     }
     if (outputFormat !== "png") {
       formData.append("output_compression", String(outputCompression));
@@ -7139,6 +7254,15 @@ export function CreatePageClient({
                   {copy("Set size", "设置尺寸")}
                 </Button>
               </div>
+              {/* 高清修复放分辨率卡内:与后端类型无关(纯服务端超分后处理),须对 web 后端也可见。 */}
+              {renderHdRepairToggle({
+                id: `image-hd-repair-${mode}`,
+                disabled: modeBusy,
+              })}
+              {renderBlockRepairToggle({
+                id: `image-block-repair-${mode}`,
+                disabled: modeBusy,
+              })}
             </div>
 
             {!isWebOnlyBackend && (
@@ -8315,6 +8439,15 @@ export function CreatePageClient({
                       )}
                     </div>
                   )}
+                  {/* 高清修复:超分后处理与后端无关,放尺寸卡内确保 web 后端也可见。 */}
+                  {renderHdRepairToggle({
+                    id: "edit-hd-repair",
+                    disabled: isEditing,
+                  })}
+                  {renderBlockRepairToggle({
+                    id: "edit-block-repair",
+                    disabled: isEditing,
+                  })}
                 </div>
 
                 <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
@@ -8961,6 +9094,14 @@ export function CreatePageClient({
                     id: "batch-transparent-matte",
                     disabled: isBatchActive || chatMixWebFirstActive,
                   })}
+                {renderHdRepairToggle({
+                  id: "batch-hd-repair",
+                  disabled: isBatchActive,
+                })}
+                {renderBlockRepairToggle({
+                  id: "batch-block-repair",
+                  disabled: isBatchActive,
+                })}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-3">
                 {promptOptimizationField(
@@ -9328,7 +9469,7 @@ export function CreatePageClient({
         </div>
 
         <div role="tabpanel" hidden={activeMode !== "video"} className="mt-0">
-          <VideoCreatePanel recent={recent} />
+          <VideoCreatePanel recent={recent} pricing={videoPricing} />
         </div>
       </Tabs>
 

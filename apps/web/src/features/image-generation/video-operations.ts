@@ -13,6 +13,7 @@
 import { db } from "@repo/database";
 import { videoGeneration } from "@repo/database/schema";
 import {
+  applyVideoBackendMultiplier,
   DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND,
   getVideoCreditCost,
   resolveVideoModelMultiplier,
@@ -29,13 +30,19 @@ import {
 } from "@repo/shared/system-settings";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { releaseImageBackendInflightLease } from "@/features/image-backend-pool/service";
 import { runAdobeDirectVideoRequest } from "./adobe-direct";
-import { getEffectiveConfig } from "./service";
+import { getEffectiveConfig, poolBackendMemberType } from "./service";
 
 export type VideoGenerationInput = {
   userId: string;
   apiKeyId?: string | null;
   prompt: string;
+  /**
+   * 预供的 video_generation 行 id（可选）。异步路径预先生成并传入,使任务的
+   * generation_id 与落库行 id 一致,便于后续按 id 持久查询;不传则内部生成。
+   */
+  videoGenerationId?: string;
   /** 完整 Firefly 视频 model id（firefly-<family>-<dur>s-<ratio>[-<res>]）。 */
   model: string;
   negativePrompt?: string | null;
@@ -66,6 +73,70 @@ function parseMultipliers(value: unknown): Record<string, number> {
     if (typeof raw === "number" && Number.isFinite(raw)) out[key] = raw;
   }
   return out;
+}
+
+/** 创作页视频价格预估所需的定价输入（前端据此按 family×时长 实时算价）。 */
+export type VideoPricingInfo = {
+  /** 每秒基价（VIDEO_BASE_CREDITS_PER_SECOND，缺省 30）。 */
+  basePerSecond: number;
+  /** 模型族倍率 map（VIDEO_MODEL_MULTIPLIERS）。 */
+  multipliers: Record<string, number>;
+  /** Adobe 后端计费倍率（含组倍率）；解析不到回退 1。 */
+  backendMultiplier: number;
+};
+
+// 解析后端倍率用的代表性 firefly 视频 model：倍率随 Adobe 成员/组而定、与具体族无关，
+// 故任取一个 firefly 视频模型即可路由到 Adobe direct 后端。
+const REPRESENTATIVE_VIDEO_MODEL_ID = "firefly-sora2-8s-16x9";
+
+/**
+ * 取某用户的视频定价输入（基价 + 模型族倍率 + Adobe 后端倍率），供创作页前端实时预估。
+ * 与扣费侧 runAdobeVideoGenerationForUser 共用同一组系统设置与 applyVideoBackendMultiplier
+ * 口径，保证展示价与实扣价一致。后端倍率解析失败（无 Adobe 后端等）优雅回退 1。
+ */
+export async function getVideoPricingForUser(input: {
+  userId: string;
+  apiKeyId?: string | null;
+}): Promise<VideoPricingInfo> {
+  const [basePerSecond, multipliersJson] = await Promise.all([
+    getRuntimeSettingNumber(
+      "VIDEO_BASE_CREDITS_PER_SECOND",
+      DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
+    ),
+    getRuntimeSettingJson("VIDEO_MODEL_MULTIPLIERS"),
+  ]);
+  const multipliers = parseMultipliers(multipliersJson);
+
+  let backendMultiplier = 1;
+  try {
+    const effective = await getEffectiveConfig(null, {
+      userId: input.userId,
+      ...(input.apiKeyId ? { apiKeyId: input.apiKeyId } : {}),
+      requestKind: "image_generation",
+      requestedModel: REPRESENTATIVE_VIDEO_MODEL_ID,
+      ignoreUserConfig: true,
+    });
+    if (effective.config.backend?.type === "pool-adobe") {
+      backendMultiplier = effective.config.backend.billingMultiplier ?? 1;
+    }
+  } catch {
+    backendMultiplier = 1;
+  }
+
+  return { basePerSecond, multipliers, backendMultiplier };
+}
+
+/**
+ * 按 id 查一条 video_generation（DB 持久,供 /v1/videos/{id} 任务查询）。
+ * 不带归属过滤,调用方须自行校验 userId 防越权。
+ */
+export async function getVideoGenerationById(id: string) {
+  const rows = await db
+    .select()
+    .from(videoGeneration)
+    .where(eq(videoGeneration.id, id))
+    .limit(1);
+  return rows[0] || null;
 }
 
 async function markVideoFailed(id: string, error: string): Promise<void> {
@@ -101,7 +172,7 @@ export async function runAdobeVideoGenerationForUser(
     modelMultiplier: resolveVideoModelMultiplier(conf.family, multipliers),
   });
 
-  const videoId = nanoid();
+  const videoId = input.videoGenerationId || nanoid();
   // 扣费/退款幂等键：派生自服务端 videoId，全局唯一。
   const sourceRef = `adobe-video:${videoId}`;
   const now = new Date();
@@ -143,10 +214,32 @@ export async function runAdobeVideoGenerationForUser(
     );
     return { error: "无可用 Adobe 视频后端", videoGenerationId: videoId };
   }
+
+  // getEffectiveConfig 已为命中成员获取 inflight 租约(进程内计数 + DB 租约)。视频管线
+  // 必须在所有退出路径释放——否则进程内 inflight 只增不减,堆到 concurrency 上限后该后端
+  // 被 hasBackendCapacity 判为满载、彻底踢出候选,后续视频请求一律解析失败为"无可用
+  // Adobe 视频后端"(2026-06-22 定位:视频管线缺租约释放的泄漏,图像管线有
+  // releasePoolBackendConfigLease,视频侧此前完全没有)。幂等:释放后置 inflightLease=false。
+  const releaseInflightLease = async () => {
+    const backend = config.backend;
+    if (backend?.inflightLease) {
+      await releaseImageBackendInflightLease({
+        memberType: poolBackendMemberType(backend.type),
+        memberId: backend.id,
+        leaseId: backend.inflightLeaseId,
+        leasePersisted: backend.inflightLeasePersisted,
+      }).catch((error) =>
+        logError(error, { source: "adobe-video-lease-release", videoId })
+      );
+      backend.inflightLease = false;
+    }
+  };
+
   if (
     config.backend?.type !== "pool-adobe" ||
     config.backend.adobeMode !== "direct"
   ) {
+    await releaseInflightLease();
     await markVideoFailed(videoId, "命中后端非 Adobe 直连");
     return {
       error: "视频生成需要一个 Adobe 直连(direct)后端",
@@ -155,10 +248,11 @@ export async function runAdobeVideoGenerationForUser(
   }
 
   // 实际计费成本 = 基价 × 后端计费倍率（组倍率已在池解析时合入 billingMultiplier）。
-  // 向上取整并非负；扣费/退款/落库一律用 billedCost，杜绝少扣/少退。
-  const billedCost = Math.max(
-    0,
-    Math.ceil(cost * (config.backend?.billingMultiplier ?? 1))
+  // 向上取整并非负；扣费/退款/落库一律用 billedCost，杜绝少扣/少退。与前端预估共用
+  // applyVideoBackendMultiplier，确保展示价与实扣价一致。
+  const billedCost = applyVideoBackendMultiplier(
+    cost,
+    config.backend?.billingMultiplier
   );
 
   // 预扣积分（幂等 sourceRef）。不足/失败 → 标记 failed 返回。
@@ -177,6 +271,7 @@ export async function runAdobeVideoGenerationForUser(
       },
     });
   } catch (error) {
+    await releaseInflightLease();
     await markVideoFailed(videoId, "积分不足");
     return {
       error: error instanceof Error ? error.message : "积分不足",
@@ -191,6 +286,7 @@ export async function runAdobeVideoGenerationForUser(
 
   // 失败统一退款 + 标记。退款幂等（同一 sourceRef 只退一次）。
   const failAndRefund = async (message: string): Promise<VideoGenerationResult> => {
+    await releaseInflightLease();
     await refundGenerationCredits({
       generationId: videoId,
       userId: input.userId,
@@ -255,5 +351,6 @@ export async function runAdobeVideoGenerationForUser(
     })
     .where(eq(videoGeneration.id, videoId));
 
+  await releaseInflightLease();
   return { videoGenerationId: videoId, storageKey, creditsConsumed: billedCost };
 }

@@ -226,6 +226,13 @@ function webErrorPayloadMessage(payload: unknown): string {
     const nested = webErrorPayloadMessage(error);
     if (nested) return nested;
   }
+  // ChatGPT web 流式增量(o/v 操作)会把真实错误文案包在 v 里(如 {"o":"add","v":{...}});
+  // 像 error 一样递归取出,避免上层兜底把原始 o/v 协议分片当错误回显给用户。
+  const value = record.v;
+  if (value && typeof value === "object") {
+    const nested = webErrorPayloadMessage(value);
+    if (nested) return nested;
+  }
   return "";
 }
 
@@ -1436,6 +1443,44 @@ function latestConversationMessageIdAfter(
   return latest ? conversationNodeId(latest.node, latest.id) : "";
 }
 
+/**
+ * 从 ChatGPT web 流式增量(o/v 操作)里抽出"系统错误"消息(content_type=system_error)。
+ *
+ * WHY:ChatGPT 无法调用画图工具时不会返回图片,而是塞一条 author.role="tool"、
+ * content.content_type="system_error" 的消息(典型 name=ChatGPTAgentToolRateLimitException,
+ * 即 image_gen.text2im 工具被账号级限流)。若不在此抽出,下游只会看到 "no image output",
+ * 既无法归类为限流(短冷却 + 换号重试),也丢失可读原因与 SLA 可观测性。
+ * 返回 name + text 拼接;name 一定在首个 add 分片里,即使 text 后续才 append 也够归类。
+ */
+function extractWebSystemError(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const record = payload as Record<string, unknown>;
+  const content = record.content;
+  if (content && typeof content === "object") {
+    const c = content as Record<string, unknown>;
+    if (c.content_type === "system_error") {
+      const name = typeof c.name === "string" ? c.name : "";
+      const text =
+        typeof c.text === "string"
+          ? c.text
+          : Array.isArray(c.parts)
+            ? c.parts
+                .filter((part): part is string => typeof part === "string")
+                .join(" ")
+            : "";
+      const combined = `${name} ${text}`.replace(/\s+/g, " ").trim();
+      if (combined) return combined.slice(0, 500);
+    }
+  }
+  for (const value of Object.values(record)) {
+    if (value && typeof value === "object") {
+      const nested = extractWebSystemError(value);
+      if (nested) return nested;
+    }
+  }
+  return "";
+}
+
 function extractWebStreamError(text: string) {
   const normalized = text.replace(/\r\n/g, "\n");
   for (const block of normalized.split("\n\n")) {
@@ -1461,6 +1506,10 @@ function extractWebStreamError(text: string) {
     } catch {
       payload = null;
     }
+    // 系统错误(工具限流等)优先抽出:它代表本次确定性失败,且要让下游按限流归类,
+    // 不能落到 "no image output" 兜底。
+    const systemError = payload ? extractWebSystemError(payload) : "";
+    if (systemError) return systemError;
     const message = payload ? webErrorPayloadMessage(payload) : "";
     const code =
       typeof payload?.code === "string"
@@ -1480,7 +1529,9 @@ function extractWebStreamError(text: string) {
         `${message} ${code} ${data}`
       )
     ) {
-      return message || code || data.replace(/\s+/g, " ").slice(0, 500);
+      // 抽到可读字段才返回;否则绝不回显原始 o/v 协议分片(那会把
+      // {"o":"add","v":{...}} 整段甩给用户)。落到下方按全文抽取限流/配额关键词短语。
+      if (message || code) return message || code;
     }
   }
   const match = text.match(
@@ -1784,6 +1835,11 @@ async function downloadImageOutputs(
   return outputs;
 }
 
+// 在飞「续接对话」占用集合:同一 ChatGPT 会话同一时刻只允许一个请求续接。并发的同提示
+// 请求(读到同一旧会话状态)只放行第一个续接,其余强制开新对话,避免同时从同一节点分叉、
+// 产出几乎一样的图。进程内即可:线上正常流量全打主副本(3308),备副本仅 failover 启用。
+const inflightWebContinuations = new Set<string>();
+
 async function runWebImage(
   config: ApiConfig,
   params: WebImageParams,
@@ -1791,13 +1847,25 @@ async function runWebImage(
 ): Promise<GenerateImageResult> {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), 20 * 60 * 1000);
+  // 本次若成功占用某会话续接,记下其 id,在 finally 释放。
+  let claimedWebConversationId: string | null = null;
   try {
     const configWithSignal = { ...config, signal: abortController.signal };
     const requestMessageId = randomUUID();
-    const continuation = lastWebConversationState(
+    let continuation = lastWebConversationState(
       params.history,
       config.backend?.id
     );
+    // 并发互斥:该会话已被在飞请求占用则本次改开新对话(continuation=null);后续逻辑
+    // (含重新附带历史参考图)沿用既有的 null 分支,故新对话仍会带上 @图 参考图。
+    if (continuation?.useNativeContinuation && continuation.conversationId) {
+      if (inflightWebContinuations.has(continuation.conversationId)) {
+        continuation = null;
+      } else {
+        inflightWebContinuations.add(continuation.conversationId);
+        claimedWebConversationId = continuation.conversationId;
+      }
+    }
     const historyReference = continuation?.useNativeContinuation
       ? null
       : getLatestWebHistoryImageReference(params.history);
@@ -1934,6 +2002,9 @@ async function runWebImage(
     };
   } finally {
     clearTimeout(timeout);
+    if (claimedWebConversationId) {
+      inflightWebContinuations.delete(claimedWebConversationId);
+    }
   }
 }
 
@@ -1982,6 +2053,7 @@ export async function selectChatGptWebImageCandidate(params: {
 export const __testing__ = {
   extractWebErrorPayloadMessage,
   extractWebStreamError,
+  extractWebSystemError,
   imageCandidatesAfterMessage,
   imageSelectionAfterMessage,
   conversationNodesAfterMessage,

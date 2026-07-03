@@ -14,8 +14,12 @@ import { fetchWithDnsPin } from "@repo/shared/security/dns-pin";
 import {
   completeAsyncImageTask,
   createAsyncImageTask,
+  type GenerationTaskRow,
   postAsyncImageCallback,
   toAsyncImageTaskResponse,
+  toGenerationImageTaskResponse,
+  type VideoTaskRow,
+  toVideoGenerationTaskResponse,
   validateCallbackUrl,
 } from "./async-image-tasks";
 
@@ -71,6 +75,103 @@ describe("external async image tasks", () => {
       credits_consumed: 1.2,
       generation_ids: ["gen_1", "gen_2"],
     });
+  });
+
+  it("maps a completed generation row to a task response with url + image_url", () => {
+    const row: GenerationTaskRow = {
+      id: "gen_abc",
+      model: "gpt-image-2",
+      status: "completed",
+      revisedPrompt: "a cat",
+      creditsConsumed: "3.15",
+      error: null,
+      createdAt: new Date("2026-06-22T00:00:00Z"),
+      completedAt: new Date("2026-06-22T00:01:00Z"),
+    };
+    const res = toGenerationImageTaskResponse(row, "/api/storage/generations/k?sig=x");
+    expect(res).toMatchObject({
+      id: "gen_abc",
+      object: "image",
+      status: "completed",
+      generation_id: "gen_abc",
+      generationId: "gen_abc",
+      image_url: "/api/storage/generations/k?sig=x",
+      data: [{ url: "/api/storage/generations/k?sig=x", revised_prompt: "a cat" }],
+      credits_consumed: 3.15, // numeric 字符串转 number
+      completed_at: "2026-06-22T00:01:00.000Z",
+    });
+  });
+
+  it("maps pending/failed generations without leaking a url", () => {
+    const base: GenerationTaskRow = {
+      id: "gen_p",
+      model: "gpt-image-2",
+      status: "pending",
+      revisedPrompt: null,
+      creditsConsumed: null,
+      error: null,
+      createdAt: new Date("2026-06-22T00:00:00Z"),
+      completedAt: null,
+    };
+    const pending = toGenerationImageTaskResponse(base, null);
+    expect(pending).toMatchObject({ status: "processing", object: "image.generation" });
+    expect(pending).not.toHaveProperty("data");
+    expect(pending).not.toHaveProperty("image_url");
+
+    const failed = toGenerationImageTaskResponse(
+      { ...base, id: "gen_f", status: "failed", error: "boom" },
+      null
+    );
+    expect(failed).toMatchObject({ status: "failed", error: { message: "boom" } });
+    expect(failed).not.toHaveProperty("data");
+  });
+
+  it("maps a completed video generation to a task response with video_url + duration", () => {
+    const row: VideoTaskRow = {
+      id: "vid_1",
+      model: "firefly-sora2-8s-16x9",
+      status: "completed",
+      durationSeconds: 8,
+      creditsConsumed: "240",
+      error: null,
+      createdAt: new Date("2026-06-22T00:00:00Z"),
+      updatedAt: new Date("2026-06-22T00:03:00Z"),
+    };
+    const res = toVideoGenerationTaskResponse(row, "/api/storage/generations/v?sig=x");
+    expect(res).toMatchObject({
+      id: "vid_1",
+      object: "video",
+      status: "completed",
+      duration_seconds: 8,
+      generation_id: "vid_1",
+      video_url: "/api/storage/generations/v?sig=x",
+      data: [{ url: "/api/storage/generations/v?sig=x" }],
+      credits_consumed: 240,
+      completed_at: "2026-06-22T00:03:00.000Z",
+    });
+  });
+
+  it("maps running/failed video generations without leaking a url", () => {
+    const base: VideoTaskRow = {
+      id: "vid_r",
+      model: "firefly-sora2-8s-16x9",
+      status: "running",
+      durationSeconds: 8,
+      creditsConsumed: "240",
+      error: null,
+      createdAt: new Date("2026-06-22T00:00:00Z"),
+      updatedAt: null,
+    };
+    const running = toVideoGenerationTaskResponse(base, null);
+    expect(running).toMatchObject({ status: "processing", object: "video.generation" });
+    expect(running).not.toHaveProperty("video_url");
+    expect(running).not.toHaveProperty("data");
+
+    const failed = toVideoGenerationTaskResponse(
+      { ...base, id: "vid_f", status: "failed", error: "upstream 500" },
+      null
+    );
+    expect(failed).toMatchObject({ status: "failed", error: { message: "upstream 500" } });
   });
 
   it("rejects private callback URLs", async () => {

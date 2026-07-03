@@ -8,7 +8,6 @@ import {
   RESPONSES_IMAGE_MODELS,
 } from "@repo/shared/config/subscription-plan";
 import {
-  type AdobeImageFamily,
   buildAdobeImageRequestBody,
   parseAdobeMediaResult,
 } from "@repo/shared/adobe";
@@ -41,6 +40,10 @@ import type {
 } from "@/features/image-backend-pool/types";
 import { runAdobeDirectImageRequest } from "./adobe-direct";
 import {
+  pickAdobeFamilyFromModel,
+  reverseFireflyToGptRequest,
+} from "./adobe-sourced-firefly";
+import {
   AGENT_CONTINUE_INSTRUCTIONS,
   createDefaultAgentAdditionalTools,
   DEFAULT_AGENT_IMAGE_ROUNDS,
@@ -57,7 +60,11 @@ import {
   getInputImageUrl,
   isImageDownloadUpstreamError,
 } from "./input-image-url";
-import { buildOpenAIPromptCacheKey } from "./openai-prompt-cache";
+import {
+  appendImagesUpstreamNonce,
+  buildOpenAIPromptCacheKey,
+  buildPromptCacheSalt,
+} from "./openai-prompt-cache";
 import {
   normalizeImageBackground,
   normalizeOutputCompression,
@@ -766,15 +773,20 @@ function isResponsesBackend(config: ApiConfig) {
   return isPoolApiResponsesBackend(config);
 }
 
-// codex(pool-account "responses")后端的普通生成/图生图改走直连 images 端点
+// codex(pool-account "responses")后端的普通生成/图生图走直连 images 端点
 // (generateImage → JSON /images/generations;editImage → JSON /images/edits,照 CPA
 // codex 直连格式:images[].image_url 的 base64 data URL + size 顶层),而非 /responses
 // 的 image_generation 工具。
-// WHY: codex 托管 image_generation 工具不暴露/不尊重 size(见 openai/codex #19175;
-// CLIProxyAPI 的 direct image API proxying 同此结论),导致生图不遵循尺寸指令。直连
-// images 端点用【同一账号、同一 OAuth 凭据、同一 baseUrl】,只改 path/body,size 走顶层
-// 被确定性尊重。codex images 端点用 JSON(不接受 multipart→400 Unsupported content type),
-// 也不认非标准 width/height 与 response_format,故两条直连路径都按 CPA 格式只发标准字段。
+// WHY 仍走直连端点:codex 托管 image_generation 工具的工具循环/多轮语义对单张生图是多余
+// 开销,直连端点用【同一账号、同一 OAuth 凭据、同一 baseUrl】只改 path/body,请求更简单、
+// 标准字段对齐 gpt-image。codex images 端点用 JSON(不接受 multipart→400 Unsupported
+// content type),也不认非标准 width/height 与 response_format,故两条直连路径都按 CPA
+// 格式只发标准字段。
+// 注意 size 仍不可靠:codex 托管图像工具不尊重 size(openai/codex #19175),而 CLIProxyAPI
+// 的 direct image API 只是把请求转成同一个工具,所以【直连 images 端点照样忽略顶层 size】——
+// 我方虽确发了 size,codex 仍按提示词内容自挑长宽比。生产实测:本组 1024x1024 请求约 40%
+// 返回非方正、70%+ 返回任意非 1024 尺寸(2026-06 审计)。要精确尺寸须避开 codex 组改用真
+// gpt-image 后端,或出图后服务端裁剪兜底;别再以为换到直连端点 size 就被尊重。
 // chat/agent/瀑布流依赖工具循环与多轮,仍走 /responses。仅作用于 codex 账号
 // (pool-account responses);pool-api 的 responses 后端不受影响。
 function shouldCodexUseDirectImagesEndpoint(config: ApiConfig) {
@@ -857,7 +869,8 @@ async function reportPoolBackendResult(
   if (!config.backend?.reportResult) return false;
   if (
     config.backend.type !== "pool-api" &&
-    config.backend.type !== "pool-account"
+    config.backend.type !== "pool-account" &&
+    config.backend.type !== "pool-adobe"
   ) {
     return false;
   }
@@ -891,9 +904,7 @@ function poolBackendMemberKey(config: ApiConfig) {
     return null;
   }
   if (!config.backend.id) return null;
-  return `${poolBackendMemberType(config.backend.type)}:${
-    config.backend.id
-  }`;
+  return `${poolBackendMemberType(config.backend.type)}:${config.backend.id}`;
 }
 
 function getStickyBackendMember(config: ApiConfig) {
@@ -1037,6 +1048,16 @@ async function fetchResponsesWithPreviousResponseFallback(
 // 有限次换后端机会兜底新形态错误，同时防止真终态错误在大池子里无限放大。
 const MAX_UNCLASSIFIED_ERROR_SWITCHES = 3;
 
+// firefly-* / force_firefly 请求只允许落 Adobe：pool-adobe 直连,或上游即 Adobe 的
+// adobe_sourced pool-api。换号重试时据此约束目标,防止按 Adobe 计费的请求漂到非 Adobe。
+function isAdobeRoutedBackend(backend: ApiConfig["backend"]): boolean {
+  if (!backend) return false;
+  return (
+    backend.type === "pool-adobe" ||
+    (backend.type === "pool-api" && backend.adobeSourced === true)
+  );
+}
+
 async function retryPoolBackendResult(
   config: ApiConfig,
   run: (candidate: ApiConfig) => Promise<GenerateImageResult>,
@@ -1056,6 +1077,9 @@ async function retryPoolBackendResult(
   }
 
   const requestKind = config.backend.requestKind;
+  // firefly 意图(解析时盖在 config 上,反映请求口径而非后端类型)。换号 re-resolve 时强制
+  // forceFirefly 以保持「只走 Adobe」,并对换号结果做不变量校验兜底。
+  const fireflyRequest = config.backend.fireflyOnly === true;
   const excluded = new Set<string>();
   let accountBackendPreference: ImageBackendAccountBackend | undefined =
     options?.accountBackendPreference ||
@@ -1066,7 +1090,10 @@ async function retryPoolBackendResult(
   let unclassifiedErrorSwitches = 0;
   const shouldFallbackFromWebPreference = () =>
     accountBackendPreference === "web" &&
-    (options?.mixWebFirst || options?.accountBackendPreference === "web");
+    (options?.mixWebFirst || options?.accountBackendPreference === "web") &&
+    // web→codex 回退仅在【混合分组】生效:纯 web / 纯 codex 分组各自闭环,web 耗尽即止于
+    // web,不跨车道回退(目标分组 backendType 在解析时盖在 config.backend 上)。
+    config.backend?.groupBackendType === "mixed";
   const resolveResponsesFallback = async (lastError?: string) => {
     logWarn("混合分组 Web 优先阶段已无可用账号，切换 Codex", {
       attempt,
@@ -1084,6 +1111,7 @@ async function retryPoolBackendResult(
         accountBackendPreference,
         accountBackendPreferenceMode: options?.accountBackendPreferenceMode,
         allowAnyResponsesBackend: options?.allowAnyResponsesBackend,
+        forceFirefly: fireflyRequest,
       });
     } catch (fallbackError) {
       if (fallbackError instanceof ImageBackendPoolUnavailableError) {
@@ -1186,6 +1214,7 @@ async function retryPoolBackendResult(
         accountBackendPreference,
         accountBackendPreferenceMode: options?.accountBackendPreferenceMode,
         allowAnyResponsesBackend: options?.allowAnyResponsesBackend,
+        forceFirefly: fireflyRequest,
       });
     } catch (error) {
       if (error instanceof ImageBackendPoolUnavailableError) {
@@ -1209,6 +1238,26 @@ async function retryPoolBackendResult(
       next = await resolveResponsesFallback(result.error);
     }
     if (!next?.config?.backend) break;
+    // 不变量兜底:firefly 请求的换号目标必须仍是 Adobe 路由(pool-adobe 或 adobe_sourced
+    // api)。正常已由上面的 forceFirefly 约束保证;此处 fail-closed 拦截任何未来回归,宁可
+    // 不换号失败,也不让按 Adobe 计费的请求落到非 Adobe 后端。
+    if (fireflyRequest && !isAdobeRoutedBackend(next.config.backend)) {
+      await releaseImageBackendInflightLease({
+        memberType: poolBackendMemberType(next.config.backend.type),
+        memberId: next.config.backend.id,
+        leaseId: next.config.backend.inflightLeaseId,
+        leasePersisted: next.config.backend.inflightLeasePersisted,
+      });
+      next.config.backend.inflightLease = false;
+      logError(new Error("firefly 请求换号命中非 Adobe 后端，已阻断"), {
+        source: "image-backend-pool",
+        operation: "firefly-retry-guard",
+        requestKind,
+        nextBackendType: next.config.backend.type,
+        nextBackendId: next.config.backend.id,
+      });
+      break;
+    }
     if (poolBackendMemberKey(next.config) === memberKey) {
       await releaseImageBackendInflightLease({
         memberType: poolBackendMemberType(next.config.backend.type),
@@ -1717,11 +1766,12 @@ async function generateChatImageWithChatCompletions(
   const attempt = async (
     forceBase64: boolean
   ): Promise<GenerateImageResult> => {
+    const messages =
+      rawBody?.messages || buildChatCompletionsMessages(params, forceBase64);
     const body = {
       ...(rawBody || {}),
       model,
-      messages:
-        rawBody?.messages || buildChatCompletionsMessages(params, forceBase64),
+      messages,
       prompt_cache_key:
         rawBody?.prompt_cache_key ||
         buildOpenAIPromptCacheKey(config, {
@@ -1729,6 +1779,7 @@ async function generateChatImageWithChatCompletions(
           model,
           imageModel: params.imageModel,
           promptOptimization: params.promptOptimization,
+          inputSignature: buildPromptCacheSalt(),
         }),
       ...(stream ? { stream: true } : {}),
     };
@@ -2059,7 +2110,8 @@ function appendImageParams(
   }
 ) {
   formData.append("model", getModel(config, params.model));
-  formData.append("prompt", params.prompt);
+  // multipart 改图同样注入每请求唯一零宽 nonce 破上游内容缓存（仅上游请求体）。
+  formData.append("prompt", appendImagesUpstreamNonce(params.prompt));
   formData.append("n", String(params.n || 1));
   formData.append("response_format", "b64_json");
 
@@ -3765,8 +3817,16 @@ export async function getEffectiveConfig(
       return { config: poolConfig.config, useCredits: true };
     }
   }
+  // firefly-* / nano-banana 仅由 Adobe / adobe_sourced 后端出图。若这些后端因限流或上游错误
+  // (502/服务不可用)被标 error 踢空,resolve 返回 null——此处给出指向 Adobe 后端的明确报错,
+  // 避免运维误以为是"模型检索不到/模型不存在"。
+  const isFireflyRequest =
+    options?.forceFirefly === true ||
+    /^firefly-/i.test((options?.requestedModel || "").trim());
   throw new ImageBackendPoolUnavailableError(
-    "没有可用的默认生图后端，请在账号池中配置默认分组和 API/账号"
+    isFireflyRequest
+      ? "没有可用的 Adobe（Firefly）后端：firefly-* / nano-banana 仅由 Adobe / adobe_sourced 后端出图，当前该分组内此类后端均不可用（可能被限流，或因上游 502/服务不可用被标记 error 踢出）。请在账号池检查 Adobe / adobe_sourced 后端状态并测活或重新启用。"
+      : "没有可用的默认生图后端，请在账号池中配置默认分组和 API/账号"
   );
 }
 
@@ -3863,33 +3923,21 @@ export function poolBackendMemberType(
   return "account";
 }
 
-// adobe（pool-adobe）后端的图像家族选择：Phase 1 默认 gpt-image；若后端声明了
-// enabledModels，取其中首个受支持的家族。
-const ADOBE_IMAGE_FAMILIES: AdobeImageFamily[] = [
-  "gpt-image-2",
-  "gpt-image-1.5",
-  "nano-banana",
-  "nano-banana2",
-  "nano-banana-pro",
-];
-
-// 从请求 model（firefly-<family>[-<res>-<ratio>]）解析模型族；解析不到返回 null（由调用
-// 方回退后端默认）。按最长前缀匹配，避免 nano-banana 误吞 nano-banana-pro/nano-banana2。
-function pickAdobeFamilyFromModel(
-  model: string | null | undefined
-): AdobeImageFamily | null {
-  const normalized = String(model || "")
-    .trim()
-    .toLowerCase();
-  if (!normalized.startsWith("firefly-")) return null;
-  const rest = normalized.slice("firefly-".length);
-  const byLength = [...ADOBE_IMAGE_FAMILIES].sort(
-    (a, b) => b.length - a.length
-  );
-  for (const family of byLength) {
-    if (rest === family || rest.startsWith(`${family}-`)) return family;
+// 「Adobe 来源」api 接 firefly-* 请求的反向转换薄封装：仅判定后端（pool-api + adobeSourced），
+// 纯映射逻辑（截家族名 + 推 size，可选 backendModel 覆盖）见 ./adobe-sourced-firefly。
+function reverseAdobeSourcedApiFirefly(
+  config: ApiConfig,
+  requestedModel: string | null | undefined,
+  requestedSize: string | null | undefined
+): { model: string; size: string | undefined } | null {
+  if (config.backend?.type !== "pool-api" || !config.backend.adobeSourced) {
+    return null;
   }
-  return null;
+  return reverseFireflyToGptRequest({
+    requestedModel,
+    requestedSize,
+    backendModel: config.model,
+  });
 }
 
 // adobe（pool-adobe）派发：用 Firefly 适配器构造 /v1/chat/completions 请求，解析产物
@@ -3973,7 +4021,16 @@ export async function generateImage(
     );
   }
 
-  const model = getModel(config, params.model);
+  const fireflyRewrite = reverseAdobeSourcedApiFirefly(
+    config,
+    params.model,
+    params.size
+  );
+  if (fireflyRewrite) {
+    // 反向转换后 size 改写一次，下游所有 params.size 读取（含 appendImageParams）即一致。
+    params = { ...params, size: fireflyRewrite.size };
+  }
+  const model = fireflyRewrite?.model ?? getModel(config, params.model);
   if (isPoolAccountBackend(config, "web")) {
     return requireImageOutput(
       await generateImageWithChatGptWeb(config, {
@@ -3996,7 +4053,10 @@ export async function generateImage(
       )
     );
   }
-  if (isResponsesBackend(config) && !shouldCodexUseDirectImagesEndpoint(config)) {
+  if (
+    isResponsesBackend(config) &&
+    !shouldCodexUseDirectImagesEndpoint(config)
+  ) {
     try {
       return requireImageOutput(
         applyPromptOptimizationResultVisibility(
@@ -4036,9 +4096,10 @@ export async function generateImage(
     const size = params.size || DEFAULT_IMAGE_SIZE;
     const dimensions = parseImageSize(size);
     const background = normalizeImageBackground(params.background);
-    // codex 直连 OpenAI 标准 images 接口:只认 size,拒绝非标准的 width/height
-    // (返回 400 Unknown parameter: 'width')与 gpt-image 不支持的 response_format;
-    // 故对 codex 去掉这些字段(b64 为默认返回)。中转(pool-api)后端不受影响,原样发送。
+    // codex 直连 OpenAI 标准 images 接口:拒绝非标准的 width/height(返回 400 Unknown
+    // parameter: 'width')与 gpt-image 不支持的 response_format,故对 codex 去掉这些字段
+    // (b64 为默认返回)。中转(pool-api)后端不受影响,原样发送。
+    // size 仍照发,但 codex 上游不尊重(#19175,直连端点亦然,见 shouldCodexUseDirectImagesEndpoint)。
     const isCodexDirect = shouldCodexUseDirectImagesEndpoint(config);
     const response = await fetch(`${config.baseUrl}/images/generations`, {
       method: "POST",
@@ -4049,7 +4110,9 @@ export async function generateImage(
       }),
       body: JSON.stringify({
         model,
-        prompt,
+        // images 端点不吃 prompt_cache_key,改在 prompt 注入每请求唯一零宽 nonce,
+        // 打掉上游中转按请求体内容缓存导致的"同图同词出同图"。仅作用于上游请求体。
+        prompt: appendImagesUpstreamNonce(prompt),
         n: params.n || 1,
         size,
         ...(dimensions && !isCodexDirect
@@ -4126,7 +4189,16 @@ export async function editImage(
     params.signal
   );
 
-  const model = getModel(config, params.model);
+  const fireflyRewrite = reverseAdobeSourcedApiFirefly(
+    config,
+    params.model,
+    params.size
+  );
+  if (fireflyRewrite) {
+    // 反向转换后 size 改写一次，下游所有 params.size 读取（含 appendImageParams）即一致。
+    params = { ...params, size: fireflyRewrite.size };
+  }
+  const model = fireflyRewrite?.model ?? getModel(config, params.model);
   const editPromptRefs = resolvePromptImageReferences({
     prompt: getEffectivePrompt(params),
     images: params.images,
@@ -4164,9 +4236,11 @@ export async function editImage(
     );
   }
   // codex(pool-account responses)图生图:直连 JSON /images/edits(照 CPA codex 直连格式)。
-  // 输入图/mask 用 images[].image_url / mask.image_url 的 base64 data URL,size 走顶层
-  // → 遵循尺寸。codex /images/edits 不接受 multipart(400 Unsupported content type),也不认
-  // 非标准 width/height 与 response_format(b64_json 为默认返回),故均不发送。
+  // 输入图/mask 用 images[].image_url / mask.image_url 的 base64 data URL,size 走顶层。
+  // 注意 size 仍不被尊重:codex 上游忽略它(#19175,直连端点亦然),实测改图同样高比例返回
+  // 非请求尺寸,详见 shouldCodexUseDirectImagesEndpoint。codex /images/edits 不接受 multipart
+  // (400 Unsupported content type),也不认非标准 width/height 与 response_format
+  // (b64_json 为默认返回),故均不发送。
   if (shouldCodexUseDirectImagesEndpoint(config)) {
     try {
       const size = params.size || DEFAULT_IMAGE_SIZE;
@@ -4182,7 +4256,8 @@ export async function editImage(
         headers: getHeaders(config, { "Content-Type": "application/json" }),
         body: JSON.stringify({
           model,
-          prompt: effectiveEditPrompt,
+          // 同生图：注入每请求唯一零宽 nonce 破上游内容缓存（仅上游请求体）。
+          prompt: appendImagesUpstreamNonce(effectiveEditPrompt),
           n: params.n || 1,
           size,
           images: params.images.map((image) => ({
@@ -4263,7 +4338,9 @@ export async function editImage(
         });
         result = await attempt(true);
       }
-      return requireImageOutput(applyPromptOptimizationResultVisibility(result));
+      return requireImageOutput(
+        applyPromptOptimizationResultVisibility(result)
+      );
     } catch (error) {
       logImageRequestError(error, {
         operation: "edit",
@@ -4436,12 +4513,14 @@ export async function generateChatImage(
           currentBackendMember,
           files: params.files,
         });
-      const { previousState: previousResponsesState, canUsePreviousResponseId } =
-        resolveResponsesNativeState({
-          enabled: responsesPreviousResponseEnabled,
-          currentBackendMember,
-          history: params.history,
-        });
+      const {
+        previousState: previousResponsesState,
+        canUsePreviousResponseId,
+      } = resolveResponsesNativeState({
+        enabled: responsesPreviousResponseEnabled,
+        currentBackendMember,
+        history: params.history,
+      });
       const responseImageRoundIndex = getNextAssistantImageRoundIndex(
         params.history
       );
@@ -4549,6 +4628,7 @@ export async function generateChatImage(
           tool,
           additionalTools: defaultAdditionalTools,
         }),
+        inputSignature: buildPromptCacheSalt(),
       });
       const requestBody: ResponsesStreamRequestBody =
         params.rawResponsesBody && isPlainRecord(params.rawResponsesBody)
@@ -4725,7 +4805,9 @@ export async function generateChatImage(
           } catch (error) {
             roundResult = {
               error:
-                error instanceof Error ? error.message : "Unknown error occurred",
+                error instanceof Error
+                  ? error.message
+                  : "Unknown error occurred",
             };
           }
           await roundRequestTracker.finish({ error: roundResult.error });
@@ -4882,7 +4964,8 @@ export async function generateChatImage(
           }
 
           const textOnly = Boolean(
-            roundResult.responseText?.trim() || roundResult.responseAgent?.trim()
+            roundResult.responseText?.trim() ||
+              roundResult.responseAgent?.trim()
           );
           if (!textOnly) {
             result = mergeGenerateImageResults(roundResults);
@@ -4977,10 +5060,13 @@ export async function generateChatImage(
       isImageDownloadUpstreamError(result.error) &&
       hasInputImageBytes(params.images)
     ) {
-      logWarn("上游下载输入图失败，改用 base64 内联重试（responses 聊天/agent）", {
-        baseUrl: config.baseUrl,
-        model,
-      });
+      logWarn(
+        "上游下载输入图失败，改用 base64 内联重试（responses 聊天/agent）",
+        {
+          baseUrl: config.baseUrl,
+          model,
+        }
+      );
       result = await attempt(true);
     }
     return result;

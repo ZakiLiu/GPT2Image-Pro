@@ -1,6 +1,6 @@
 import { DocsBody, DocsPage, DocsTitle } from "fumadocs-ui/page";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import {
   getSystemDocsMetadata,
@@ -9,8 +9,10 @@ import {
 import { docsSource } from "@/lib/source";
 
 function isSystemDocsSlug(slug?: string[]) {
+  // 根路径 /docs 改为渲染 index.mdx 的「文档目录」落地页(便于发现各文档)；
+  // 系统架构总览仍保留在 /docs/system 与 /docs/backend-help。
   if (!slug?.length) {
-    return true;
+    return false;
   }
 
   const path = slug.join("/");
@@ -21,7 +23,9 @@ function isSystemDocsSlug(slug?: string[]) {
  * 生成静态参数
  */
 export function generateStaticParams() {
-  return [...docsSource.generateParams(), { slug: ["system"] }];
+  // system 由 content/docs/system.mdx 自身的 generateParams 覆盖;此处仅补
+  // backend-help(无对应 mdx 文件,但 isSystemDocsSlug 会渲染同一份 SystemDocsContent)。
+  return [...docsSource.generateParams(), { slug: ["backend-help"] }];
 }
 
 /**
@@ -64,6 +68,12 @@ export default async function Page({
   params: Promise<{ locale?: string; slug?: string[] }>;
 }) {
   const { locale, slug } = await params;
+
+  // 外部 API 文档已并入「系统文档」(SystemDocsContent,数据驱动,渲染于 /docs/system 与
+  // 控制台 backend-help);external-api.mdx 已删除。旧 /docs/external-api 链接重定向到 /docs/system。
+  if (slug?.join("/") === "external-api") {
+    redirect(`/${locale ?? "en"}/docs/system`);
+  }
 
   if (isSystemDocsSlug(slug)) {
     return (
